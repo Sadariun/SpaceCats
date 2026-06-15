@@ -6,7 +6,7 @@
             name="viewport"
             content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
         />
-        <title>White vs Red - Visual Update</title>
+        <title>White vs Red - Boss Arena Update</title>
         <style>
             * {
                 box-sizing: border-box;
@@ -145,6 +145,7 @@
                 BOSS_FIGHT: 4,
                 GAMEOVER: 5,
                 UPGRADE: 6,
+                PAUSED: 7,
             };
             let gameState = STATES.MENU;
             let previousState = STATES.PLAYING;
@@ -159,7 +160,100 @@
             let bossSpawnTimer = 0;
             let activeBossRef = null;
 
+            // Параметры замкнутой арены босса
+            const bossArena = { x: 0, y: 0, size: 600, active: false };
+
             const camera = { x: 0, y: 0 };
+
+            // --- СИСТЕМА МЕТА-ПРОГРЕССИИ ---
+            let unlockedWeapons = ["Dart", "Orbit", "Aura", "Cross"];
+
+            const ACHIEVEMENT_LIST = [
+                { id: "Bounce", cond: "Счет 500", desc: "Разблокирует Bounce" },
+                { id: "Mine", cond: "Счет 1500", desc: "Разблокирует Mine" },
+                { id: "Blast", cond: "Счет 3000", desc: "Разблокирует Blast" },
+                {
+                    id: "Crystal",
+                    cond: "Счет 5000",
+                    desc: "Разблокирует Crystal",
+                },
+                { id: "Rain", cond: "Уровень 5", desc: "Разблокирует Rain" },
+                {
+                    id: "Spiral",
+                    cond: "Уровень 10",
+                    desc: "Разблокирует Spiral",
+                },
+                {
+                    id: "Vortex",
+                    cond: "Уровень 15",
+                    desc: "Разблокирует Vortex",
+                },
+                { id: "Pulse", cond: "Мир 2", desc: "Разблокирует Pulse" },
+                { id: "Beam", cond: "Мир 3", desc: "Разблокирует Beam" },
+                {
+                    id: "Chain",
+                    cond: "Убить Босса",
+                    desc: "Разблокирует Chain",
+                },
+                { id: "Echo", cond: "5 Оружий", desc: "Разблокирует Echo" },
+            ];
+
+            let toasts = [];
+            function showUnlockToast(weaponId) {
+                toasts.push({
+                    title: "ОРУЖИЕ РАЗБЛОКИРОВАНО!",
+                    desc: `Доступно в пуле: ${weaponId}`,
+                    timer: 200,
+                });
+            }
+
+            function saveMetaProgress() {
+                try {
+                    localStorage.setItem(
+                        "wvr_unlocked_weapons",
+                        JSON.stringify(unlockedWeapons),
+                    );
+                } catch (e) {}
+            }
+            function loadMetaProgress() {
+                try {
+                    let saved = localStorage.getItem("wvr_unlocked_weapons");
+                    if (saved) {
+                        let parsed = JSON.parse(saved);
+                        if (Array.isArray(parsed)) {
+                            parsed.forEach((w) => {
+                                if (!unlockedWeapons.includes(w) && WEAPONS[w])
+                                    unlockedWeapons.push(w);
+                            });
+                        }
+                    }
+                } catch (e) {}
+            }
+            function unlockWeapon(id) {
+                if (!unlockedWeapons.includes(id)) {
+                    unlockedWeapons.push(id);
+                    saveMetaProgress();
+                    showUnlockToast(id);
+                }
+            }
+
+            function checkScoreProgression() {
+                if (score >= 500) unlockWeapon("Bounce");
+                if (score >= 1500) unlockWeapon("Mine");
+                if (score >= 3000) unlockWeapon("Blast");
+                if (score >= 5000) unlockWeapon("Crystal");
+            }
+            function checkLevelProgression() {
+                if (player.level >= 5) unlockWeapon("Rain");
+                if (player.level >= 10) unlockWeapon("Spiral");
+                if (player.level >= 15) unlockWeapon("Vortex");
+            }
+            function checkArsenalProgression() {
+                let activeCount = Object.keys(WEAPONS).filter(
+                    (k) => WEAPONS[k].level > 0,
+                ).length;
+                if (activeCount >= 5) unlockWeapon("Echo");
+            }
 
             // --- СИСТЕМА ОПТИМИЗИРОВАННОГО ПУЛА СКОРОСТИ O(1) ---
             class FastPool {
@@ -211,7 +305,24 @@
 
             // --- СИСТЕМА УПРАВЛЕНИЯ ---
             const keys = {};
-            window.addEventListener("keydown", (e) => (keys[e.code] = true));
+            window.addEventListener("keydown", (e) => {
+                keys[e.code] = true;
+                if (e.code === "Escape" || e.code === "KeyP") {
+                    if (
+                        [
+                            STATES.PLAYING,
+                            STATES.PORTAL_OPEN,
+                            STATES.BOSS_SPAWN,
+                            STATES.BOSS_FIGHT,
+                        ].includes(gameState)
+                    ) {
+                        previousState = gameState;
+                        gameState = STATES.PAUSED;
+                    } else if (gameState === STATES.PAUSED) {
+                        gameState = previousState;
+                    }
+                }
+            });
             window.addEventListener("keyup", (e) => (keys[e.code] = false));
 
             const joystick = {
@@ -278,6 +389,11 @@
                     gameState === STATES.MENU ||
                     gameState === STATES.GAMEOVER
                 ) {
+                    if (
+                        document.getElementById("upgrade-screen").style
+                            .display === "block"
+                    )
+                        return;
                     resetGame();
                     gameState = STATES.PLAYING;
                 }
@@ -317,6 +433,19 @@
                     this.x += moveX * this.speed;
                     this.y += moveY * this.speed;
 
+                    // Ограничение движения границами арены босса
+                    if (bossArena.active) {
+                        let half = bossArena.size / 2;
+                        if (this.x < bossArena.x - half + this.radius)
+                            this.x = bossArena.x - half + this.radius;
+                        if (this.x > bossArena.x + half - this.radius)
+                            this.x = bossArena.x + half - this.radius;
+                        if (this.y < bossArena.y - half + this.radius)
+                            this.y = bossArena.y - half + this.radius;
+                        if (this.y > bossArena.y + half - this.radius)
+                            this.y = bossArena.y + half - this.radius;
+                    }
+
                     if (moveX !== 0 || moveY !== 0) {
                         let len = Math.hypot(moveX, moveY);
                         this.lastVx = moveX / len;
@@ -334,40 +463,64 @@
                         Math.PI * 2,
                     );
                     ctx.fill();
+
+                    let hpRingRadius = this.radius + 6;
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+                    ctx.lineWidth = 2.5;
+                    ctx.beginPath();
+                    ctx.arc(
+                        this.x - camera.x,
+                        this.y - camera.y,
+                        hpRingRadius,
+                        0,
+                        Math.PI * 2,
+                    );
+                    ctx.stroke();
+
+                    ctx.strokeStyle = "#FFFFFF";
+                    ctx.beginPath();
+                    let hpPct = Math.max(0, this.hp) / this.maxHp;
+                    ctx.arc(
+                        this.x - camera.x,
+                        this.y - camera.y,
+                        hpRingRadius,
+                        -Math.PI / 2,
+                        -Math.PI / 2 + Math.PI * 2 * hpPct,
+                    );
+                    ctx.stroke();
                 }
             }
             const player = new Player();
-
-            const BOSS_CONFIGS = [
-                { name: "ВЕКТОРНЫЙ ШТОРМ [MK-1]", radius: 36, hp: 1400 },
-                { name: "ГЕОМЕТРИЧЕСКИЙ ТАРАН [MK-2]", radius: 42, hp: 2000 },
-                { name: "СПИРАЛЬНЫЙ НЕКСУС [MK-3]", radius: 35, hp: 1700 },
-            ];
 
             class Enemy {
                 constructor() {
                     this.active = false;
                     this.poolIndex = -1;
                 }
-                spawn(x, y, variant = "normal", bossIndex = 0) {
+                spawn(x, y, variant = "normal") {
                     this.x = x;
                     this.y = y;
                     this.variant = variant;
                     this.active = true;
-                    this.bossId = bossIndex;
                     this.shootTimer = 0;
                     this.aiTimer = Math.floor(Math.random() * 10);
                     this.vx = 0;
                     this.vy = 0;
-                    this.chargeState = 0;
                     this.slowTimer = 0;
 
+                    // Переменные кастомного искусственного интеллекта нового босса
+                    this.bossState = 0; // 0: Выбор атаки, 1: Обстрел, 2: Прыжок, 3: Лазер
+                    this.bossStateTimer = 0;
+                    this.visualAngle = 0;
+                    this.jumpTargetX = 0;
+                    this.jumpTargetY = 0;
+                    this.laserAngle = 0;
+
                     if (variant === "boss") {
-                        const conf = BOSS_CONFIGS[bossIndex];
-                        this.name = conf.name;
-                        this.radius = conf.radius;
-                        this.hp = conf.hp * difficultyMultiplier;
-                        this.speed = 1.4 * difficultyMultiplier;
+                        this.name = "АРХИТЕКТОР СЕТИ [OVERLORD]";
+                        this.radius = 45;
+                        this.hp = 3000 * difficultyMultiplier;
+                        this.speed = 1.2;
                         activeBossRef = this;
                     } else if (variant === "shooter") {
                         this.radius = 9;
@@ -395,6 +548,7 @@
                     }
 
                     if (this.variant !== "boss") {
+                        // ЛОГИКА ОБЫЧНЫХ МОБОВ
                         this.aiTimer++;
                         if (this.aiTimer >= 10) {
                             this.aiTimer = 0;
@@ -428,18 +582,55 @@
                                     );
                             }
                         }
+                        this.x += this.vx;
+                        this.y += this.vy;
                     } else {
-                        this.shootTimer++;
-                        if (this.bossId === 0) {
-                            if (this.shootTimer % 12 === 0) {
-                                let angle = Math.atan2(dy, dx);
-                                this.vx = Math.cos(angle) * currentSpeed;
-                                this.vy = Math.sin(angle) * currentSpeed;
+                        // УНИКАЛЬНАЯ ЛОГИКА МНОГОФАЗОВОГО БОССА
+                        this.visualAngle +=
+                            0.02 + (1 - this.hp / this.maxHp) * 0.04; // Вращение спрайта ускоряется при низком HP
+                        this.bossStateTimer++;
+
+                        // Стены арены удерживают босса внутри
+                        let half = bossArena.size / 2;
+                        if (this.x < bossArena.x - half + this.radius)
+                            this.x = bossArena.x - half + this.radius;
+                        if (this.x > bossArena.x + half - this.radius)
+                            this.x = bossArena.x + half - this.radius;
+                        if (this.y < bossArena.y - half + this.radius)
+                            this.y = bossArena.y - half + this.radius;
+                        if (this.y > bossArena.y + half - this.radius)
+                            this.y = bossArena.y + half - this.radius;
+
+                        if (this.bossState === 0) {
+                            // Состояние ожидания и ленивого преследования игрока
+                            let angle = Math.atan2(dy, dx);
+                            this.x += Math.cos(angle) * currentSpeed;
+                            this.y += Math.sin(angle) * currentSpeed;
+
+                            if (this.bossStateTimer > 120) {
+                                this.bossStateTimer = 0;
+                                let randAttack = Math.random();
+                                if (
+                                    this.hp < this.maxHp * 0.5 &&
+                                    randAttack > 0.6
+                                ) {
+                                    this.bossState = 3; // Лазер (только на <50% HP)
+                                    this.laserAngle = angle;
+                                } else {
+                                    this.bossState = randAttack > 0.5 ? 1 : 2;
+                                    if (this.bossState === 2) {
+                                        // Фиксируем координаты игрока для прыжка
+                                        this.jumpTargetX = player.x;
+                                        this.jumpTargetY = player.y;
+                                    }
+                                }
                             }
-                            if (this.shootTimer >= 80) {
-                                this.shootTimer = 0;
-                                for (let i = 0; i < 12; i++) {
-                                    let a = ((Math.PI * 2) / 12) * i;
+                        } else if (this.bossState === 1) {
+                            // АТАКА 1: ВЕЕРНЫЙ КОЛЬЦЕВОЙ ОБСТРЕЛ
+                            if (this.bossStateTimer % 8 === 0) {
+                                let baseA = this.bossStateTimer * 0.15;
+                                for (let i = 0; i < 4; i++) {
+                                    let a = baseA + (Math.PI / 2) * i;
                                     enemyBulletPool
                                         .get()
                                         ?.spawn(
@@ -449,96 +640,101 @@
                                             Math.sin(a) * 3.5,
                                             5,
                                             false,
-                                            140,
-                                            "normal",
-                                        );
-                                }
-                            }
-                        } else if (this.bossId === 1) {
-                            if (this.chargeState === 0) {
-                                if (this.shootTimer < 80) {
-                                    let angle = Math.atan2(dy, dx);
-                                    this.vx = Math.cos(angle) * currentSpeed;
-                                    this.vy = Math.sin(angle) * currentSpeed;
-                                } else {
-                                    this.vx = 0;
-                                    this.vy = 0;
-                                }
-                                if (this.shootTimer >= 110) {
-                                    this.chargeState = 1;
-                                    this.shootTimer = 0;
-                                    let angle = Math.atan2(dy, dx);
-                                    this.vx =
-                                        Math.cos(angle) * (currentSpeed * 4);
-                                    this.vy =
-                                        Math.sin(angle) * (currentSpeed * 4);
-                                }
-                            } else if (
-                                this.chargeState === 1 &&
-                                this.shootTimer >= 35
-                            ) {
-                                this.chargeState = 0;
-                                this.shootTimer = 0;
-                                for (let i = 0; i < 8; i++) {
-                                    let a = ((Math.PI * 2) / 8) * i;
-                                    enemyBulletPool
-                                        .get()
-                                        ?.spawn(
-                                            this.x,
-                                            this.y,
-                                            Math.cos(a) * 3,
-                                            Math.sin(a) * 3,
-                                            5,
-                                            false,
                                             120,
                                             "normal",
                                         );
                                 }
                             }
-                        } else if (this.bossId === 2) {
-                            this.vx = Math.cos(Date.now() / 750) * currentSpeed;
-                            this.vy = Math.sin(Date.now() / 750) * currentSpeed;
-                            if (this.shootTimer % 6 === 0) {
-                                let a = this.shootTimer * 0.13;
-                                enemyBulletPool
+                            if (this.bossStateTimer > 150) {
+                                this.bossState = 0;
+                                this.bossStateTimer = 0;
+                            }
+                        } else if (this.bossState === 2) {
+                            // АТАКА 2: ГИПЕР-ПРЫЖОК С ПРИЗЕМЛЕНИЕМ В ИГРОКА
+                            if (this.bossStateTimer < 45) {
+                                // Босс улетает вверх (визуально уменьшается/исчезает из коллизий)
+                                this.y -= 12;
+                            } else if (this.bossStateTimer === 45) {
+                                this.x = this.jumpTargetX;
+                                this.y = this.jumpTargetY - 400;
+                            } else if (
+                                this.bossStateTimer > 45 &&
+                                this.bossStateTimer < 75
+                            ) {
+                                // Падение на цель
+                                this.y += 13.3;
+                            } else if (this.bossStateTimer === 75) {
+                                this.y = this.jumpTargetY; // Точная посадка
+                                // Создаем ударную взрывную волну эффектом
+                                effectPool
                                     .get()
                                     ?.spawn(
                                         this.x,
                                         this.y,
-                                        Math.cos(a) * 4,
-                                        Math.sin(a) * 4,
-                                        4,
-                                        false,
-                                        120,
-                                        "normal",
+                                        140,
+                                        20,
+                                        "enemy_exp",
                                     );
-                                enemyBulletPool
-                                    .get()
-                                    ?.spawn(
+                                dealAreaDamageFromBoss(this.x, this.y, 140, 25);
+                                // Кольцо снарядов осколков
+                                for (let i = 0; i < 16; i++) {
+                                    let a = ((Math.PI * 2) / 16) * i;
+                                    enemyBulletPool
+                                        .get()
+                                        ?.spawn(
+                                            this.x,
+                                            this.y,
+                                            Math.cos(a) * 4.5,
+                                            Math.sin(a) * 4.5,
+                                            4,
+                                            false,
+                                            80,
+                                            "normal",
+                                        );
+                                }
+                            } else if (this.bossStateTimer > 100) {
+                                this.bossState = 0;
+                                this.bossStateTimer = 0;
+                            }
+                        } else if (this.bossState === 3) {
+                            // АТАКА 3: МАССИВНЫЙ ПОТОКОВЫЙ ЛАЗЕР
+                            if (this.bossStateTimer < 60) {
+                                // Наведение (докручиваем угол лазера к игроку)
+                                let targetA = Math.atan2(dy, dx);
+                                this.laserAngle +=
+                                    (targetA - this.laserAngle) * 0.05;
+                            } else if (
+                                this.bossStateTimer >= 60 &&
+                                this.bossStateTimer < 200
+                            ) {
+                                // Огонь! Лазер вращается вслед за игроком, но медленнее
+                                let targetA = Math.atan2(dy, dx);
+                                this.laserAngle +=
+                                    (targetA - this.laserAngle) * 0.015;
+
+                                if (this.bossStateTimer % 3 === 0) {
+                                    // Каждую итерацию наносим урон лучом по вектору направления
+                                    checkLaserCollision(
                                         this.x,
                                         this.y,
-                                        Math.cos(a + Math.PI) * 4,
-                                        Math.sin(a + Math.PI) * 4,
-                                        4,
-                                        false,
-                                        120,
-                                        "normal",
+                                        this.laserAngle,
                                     );
+                                }
+                            } else {
+                                this.bossState = 0;
+                                this.bossStateTimer = 0;
                             }
                         }
                     }
 
-                    this.x += this.vx;
-                    this.y += this.vy;
-
                     if (dist < player.radius + this.radius) {
-                        player.hp -= this.variant === "boss" ? 0.8 : 0.4;
+                        player.hp -= this.variant === "boss" ? 1.2 : 0.4;
                         if (player.hp <= 0) gameState = STATES.GAMEOVER;
                     }
                 }
                 draw() {
-                    ctx.fillStyle = "#FF0000";
                     if (this.variant === "normal") {
+                        ctx.fillStyle = "#FF0000";
                         ctx.fillRect(
                             this.x - camera.x - this.radius,
                             this.y - camera.y - this.radius,
@@ -546,6 +742,7 @@
                             this.radius * 2,
                         );
                     } else if (this.variant === "shooter") {
+                        ctx.fillStyle = "#FF0000";
                         ctx.beginPath();
                         ctx.moveTo(
                             this.x - camera.x,
@@ -562,6 +759,7 @@
                         ctx.closePath();
                         ctx.fill();
                     } else if (this.variant === "exploder") {
+                        ctx.fillStyle = "#FF0000";
                         ctx.beginPath();
                         ctx.arc(
                             this.x - camera.x,
@@ -574,31 +772,112 @@
                         ctx.strokeStyle = "#1A1A1A";
                         ctx.lineWidth = 2;
                         ctx.stroke();
-                    } else {
-                        ctx.beginPath();
-                        ctx.arc(
-                            this.x - camera.x,
-                            this.y - camera.y,
-                            this.radius,
-                            0,
-                            Math.PI * 2,
-                        );
-                        ctx.fill();
-                        ctx.strokeStyle = "#1A1A1A";
+                    } else if (this.variant === "boss") {
+                        // СЛОЖНЫЙ УНИКАЛЬНЫЙ ВЕКТОРНЫЙ СПРАЙТ БОССА
+                        ctx.save();
+                        ctx.translate(this.x - camera.x, this.y - camera.y);
+
+                        // Отрисовка индикатора наведения лазера
+                        if (this.bossState === 3) {
+                            ctx.save();
+                            ctx.rotate(this.laserAngle);
+                            if (this.bossStateTimer < 60) {
+                                ctx.strokeStyle = "rgba(255, 0, 0, 0.4)";
+                                ctx.lineWidth = 1;
+                                ctx.setLineDash([5, 5]);
+                                ctx.beginPath();
+                                ctx.moveTo(0, 0);
+                                ctx.lineTo(700, 0);
+                                ctx.stroke();
+                            } else {
+                                ctx.strokeStyle = "#FF0000";
+                                ctx.lineWidth =
+                                    24 + Math.sin(Date.now() / 20) * 4;
+                                ctx.beginPath();
+                                ctx.moveTo(0, 0);
+                                ctx.lineTo(700, 0);
+                                ctx.stroke();
+                                ctx.strokeStyle = "#FFFFFF";
+                                ctx.lineWidth = 6;
+                                ctx.beginPath();
+                                ctx.moveTo(0, 0);
+                                ctx.lineTo(700, 0);
+                                ctx.stroke();
+                            }
+                            ctx.restore();
+                        }
+
+                        // Отрисовка внешнего кольца-периметра щитов
+                        ctx.rotate(this.visualAngle);
+                        ctx.strokeStyle = "#FF0000";
                         ctx.lineWidth = 4;
-                        if (
-                            this.bossId === 1 &&
-                            this.chargeState === 0 &&
-                            this.shootTimer >= 80
-                        )
-                            ctx.strokeStyle = "#FFFFFF";
+                        for (let i = 0; i < 4; i++) {
+                            ctx.rotate(Math.PI / 2);
+                            ctx.beginPath();
+                            ctx.arc(0, 0, this.radius, -0.4, 0.4);
+                            ctx.stroke();
+                            // Шипы на щитах
+                            ctx.beginPath();
+                            ctx.moveTo(this.radius, -5);
+                            ctx.lineTo(this.radius + 12, 0);
+                            ctx.lineTo(this.radius, 5);
+                            ctx.fillStyle = "#FF0000";
+                            ctx.fill();
+                        }
+
+                        // Среднее геометрическое кольцо защиты
+                        ctx.rotate(-this.visualAngle * 1.8);
+                        ctx.strokeStyle = "#FFFFFF";
+                        ctx.lineWidth = 2;
                         ctx.strokeRect(
-                            this.x - camera.x - 14,
-                            this.y - camera.y - 14,
-                            28,
-                            28,
+                            -this.radius * 0.6,
+                            -this.radius * 0.6,
+                            this.radius * 1.2,
+                            this.radius * 1.2,
                         );
+
+                        // Центральное светящееся ядро
+                        ctx.fillStyle =
+                            this.bossState === 2 && this.bossStateTimer < 75
+                                ? "#FF0000"
+                                : "#FFFFFF";
+                        ctx.beginPath();
+                        let pulseRad =
+                            this.radius * 0.35 + Math.sin(Date.now() / 80) * 3;
+                        ctx.arc(0, 0, pulseRad, 0, Math.PI * 2);
+                        ctx.fill();
+
+                        ctx.restore();
                     }
+                }
+            }
+
+            // Функция урона по площади во время падения босса
+            function dealAreaDamageFromBoss(x, y, radius, damage) {
+                if (
+                    Math.hypot(player.x - x, player.y - y) <
+                    radius + player.radius
+                ) {
+                    player.hp -= damage;
+                    if (player.hp <= 0) gameState = STATES.GAMEOVER;
+                }
+            }
+
+            // Проверка попадания лазера по игроку
+            function checkLaserCollision(bx, by, angle) {
+                let dx = player.x - bx;
+                let dy = player.y - by;
+                let dist = Math.hypot(dx, dy);
+                let playerA = Math.atan2(dy, dx);
+
+                // Вычисляем разницу углов
+                let diff = Math.abs(playerA - angle);
+                while (diff > Math.PI) diff = Math.PI * 2 - diff;
+
+                // Ширина луча около 20 пикселей, проверяем попадание по сектору
+                if (diff < 0.04 && dist < 700) {
+                    player.hp -= 4;
+                    if (player.hp <= 0) gameState = STATES.GAMEOVER;
                 }
             }
 
@@ -635,10 +914,15 @@
                 }
                 update() {
                     if (
-                        this.type === "normal" ||
-                        this.type === "bounce" ||
-                        this.type === "boomerang" ||
-                        this.type === "crystal"
+                        [
+                            "normal",
+                            "bounce",
+                            "boomerang",
+                            "crystal",
+                            "dart",
+                            "cross",
+                            "rain",
+                        ].includes(this.type)
                     ) {
                         this.x += this.vx;
                         this.y += this.vy;
@@ -673,7 +957,6 @@
                                 if (enemy.hp <= 0) {
                                     destroyEnemy(enemy);
                                 }
-
                                 if (this.type === "crystal") {
                                     this.shatter();
                                     removeBullet(this);
@@ -760,7 +1043,22 @@
                 }
                 draw() {
                     ctx.fillStyle = this.isPlayer ? "#FFFFFF" : "#FF0000";
+                    ctx.strokeStyle = this.isPlayer ? "#FFFFFF" : "#FF0000";
+                    ctx.lineWidth = 2;
                     ctx.beginPath();
+
+                    if (!this.isPlayer) {
+                        ctx.arc(
+                            this.x - camera.x,
+                            this.y - camera.y,
+                            this.radius,
+                            0,
+                            Math.PI * 2,
+                        );
+                        ctx.fill();
+                        return;
+                    }
+
                     if (this.type === "mine") {
                         ctx.moveTo(
                             this.x - camera.x,
@@ -775,6 +1073,88 @@
                             this.y - camera.y + this.radius,
                         );
                         ctx.closePath();
+                        ctx.fill();
+                    } else if (this.type === "dart") {
+                        let angle = Math.atan2(this.vy, this.vx);
+                        ctx.save();
+                        ctx.translate(this.x - camera.x, this.y - camera.y);
+                        ctx.rotate(angle);
+                        ctx.beginPath();
+                        ctx.moveTo(this.radius * 1.6, 0);
+                        ctx.lineTo(-this.radius, -this.radius);
+                        ctx.lineTo(-this.radius / 2, 0);
+                        ctx.lineTo(-this.radius, this.radius);
+                        ctx.closePath();
+                        ctx.fill();
+                        ctx.restore();
+                    } else if (
+                        this.type === "cross" ||
+                        this.type === "boomerang"
+                    ) {
+                        ctx.moveTo(
+                            this.x - camera.x - this.radius,
+                            this.y - camera.y,
+                        );
+                        ctx.lineTo(
+                            this.x - camera.x + this.radius,
+                            this.y - camera.y,
+                        );
+                        ctx.moveTo(
+                            this.x - camera.x,
+                            this.y - camera.y - this.radius,
+                        );
+                        ctx.lineTo(
+                            this.x - camera.x,
+                            this.y - camera.y + this.radius,
+                        );
+                        ctx.stroke();
+                    } else if (this.type === "bounce") {
+                        ctx.strokeRect(
+                            this.x - camera.x - this.radius,
+                            this.y - camera.y - this.radius,
+                            this.radius * 2,
+                            this.radius * 2,
+                        );
+                    } else if (this.type === "rain") {
+                        ctx.moveTo(
+                            this.x - camera.x,
+                            this.y - camera.y - this.radius * 1.4,
+                        );
+                        ctx.lineTo(
+                            this.x - camera.x,
+                            this.y - camera.y + this.radius * 1.4,
+                        );
+                        ctx.stroke();
+                    } else if (this.type === "crystal") {
+                        ctx.moveTo(
+                            this.x - camera.x,
+                            this.y - camera.y - this.radius * 1.3,
+                        );
+                        ctx.lineTo(
+                            this.x - camera.x + this.radius * 0.8,
+                            this.y - camera.y,
+                        );
+                        ctx.lineTo(
+                            this.x - camera.x,
+                            this.y - camera.y + this.radius * 1.3,
+                        );
+                        ctx.lineTo(
+                            this.x - camera.x - this.radius * 0.8,
+                            this.y - camera.y,
+                        );
+                        ctx.closePath();
+                        ctx.fill();
+                    } else if (this.type === "spiral") {
+                        ctx.save();
+                        ctx.translate(this.x - camera.x, this.y - camera.y);
+                        ctx.rotate(this.extra * 2.5);
+                        ctx.strokeRect(
+                            -this.radius,
+                            -this.radius,
+                            this.radius * 2,
+                            this.radius * 2,
+                        );
+                        ctx.restore();
                     } else {
                         ctx.arc(
                             this.x - camera.x,
@@ -783,8 +1163,8 @@
                             0,
                             Math.PI * 2,
                         );
+                        ctx.fill();
                     }
-                    ctx.fill();
                 }
             }
 
@@ -903,19 +1283,17 @@
                 draw() {
                     let p = 1 - this.duration / this.maxDuration;
 
-                    // --- НОВАЯ СИСТЕМА ДИНАМИЧЕСКОЙ АНИМАЦИИ ЛАЗЕРА ---
                     if (this.type === "beam_visual") {
                         let alpha = 1;
                         let maxW = 32;
                         if (p < 0.2) {
                             maxW = (p / 0.2) * 32;
-                            alpha = 0.4 + Math.random() * 0.6; // Мерцание при старте
+                            alpha = 0.4 + Math.random() * 0.6;
                         } else if (p > 0.6) {
                             maxW = ((1 - p) / 0.4) * 32;
-                            alpha = (1 - p) / 0.4; // Плавное затухание
+                            alpha = (1 - p) / 0.4;
                         }
 
-                        // Наружный плазменный шлейф
                         ctx.fillStyle = `rgba(255, 255, 255, ${alpha * 0.22})`;
                         ctx.fillRect(
                             0,
@@ -923,7 +1301,6 @@
                             canvas.width,
                             maxW,
                         );
-                        // Концентрированное ядро
                         ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
                         ctx.fillRect(
                             0,
@@ -1027,7 +1404,6 @@
                 }
             }
 
-            // --- ИНИЦИАЛИЗАЦИЯ ДВИЖКА ПУЛОВ ---
             const enemyPool = new FastPool(Enemy, 600);
             const bulletPool = new FastPool(Bullet, 1500);
             const enemyBulletPool = new FastPool(Bullet, 800);
@@ -1051,6 +1427,8 @@
             function destroyEnemy(enemy) {
                 enemyPool.release(enemy);
                 score += 10;
+                checkScoreProgression();
+
                 if (enemy.variant === "boss") handleBossDeath();
                 else {
                     xpPool.get()?.spawn(enemy.x, enemy.y);
@@ -1076,6 +1454,7 @@
                     player.level++;
                     player.xpNeeded = Math.floor(player.xpNeeded * 1.35);
                     pendingUpgrades++;
+                    checkLevelProgression();
                 }
             }
 
@@ -1108,7 +1487,7 @@
                                 4,
                                 true,
                                 110,
-                                "normal",
+                                "dart",
                                 0,
                                 WEAPONS.Dart.dmg,
                             );
@@ -1127,7 +1506,7 @@
                                         4,
                                         true,
                                         110,
-                                        "normal",
+                                        "dart",
                                         0,
                                         WEAPONS.Dart.dmg,
                                     );
@@ -1276,7 +1655,7 @@
                                     130,
                                     WEAPONS.Cross.level === 5
                                         ? "boomerang"
-                                        : "normal",
+                                        : "cross",
                                     0,
                                     dmg,
                                 );
@@ -1433,7 +1812,7 @@
                                     3,
                                     true,
                                     110,
-                                    "normal",
+                                    "rain",
                                     0,
                                     dmg,
                                 );
@@ -1725,17 +2104,14 @@
                 });
             }
 
-            // --- СИСТЕМА ПРОЦЕДУРНОЙ ОТРИСОВКИ ИКОНОК НА ЭКРАНЕ УЛУЧШЕНИЙ ---
+            // --- СИСТЕМА ИКОНОК ---
             function renderWeaponIcon(canvasElement, type) {
                 const iconCtx = canvasElement.getContext("2d");
                 iconCtx.clearRect(0, 0, 80, 80);
                 iconCtx.strokeStyle = "#FFFFFF";
                 iconCtx.fillStyle = "#FFFFFF";
                 iconCtx.lineWidth = 2.5;
-                iconCtx.lineJoin = "round";
-                iconCtx.lineCap = "round";
-
-                iconCtx.translate(40, 40); // Перенос начала координат в центр иконки
+                iconCtx.translate(40, 40);
 
                 if (type === "Dart") {
                     iconCtx.beginPath();
@@ -1863,7 +2239,6 @@
                     iconCtx.closePath();
                     iconCtx.stroke();
                 }
-
                 iconCtx.setTransform(1, 0, 0, 1, 0, 0);
             }
 
@@ -1877,6 +2252,7 @@
 
                 let options = [];
                 Object.keys(WEAPONS).forEach((key) => {
+                    if (!unlockedWeapons.includes(key)) return;
                     let w = WEAPONS[key];
                     if (w.level < 5) {
                         options.push({
@@ -1890,6 +2266,7 @@
                                 screen.style.display = "none";
                                 pendingUpgrades--;
                                 gameState = previousState;
+                                checkArsenalProgression();
                             },
                         });
                     }
@@ -1905,41 +2282,30 @@
                 }
 
                 choices.forEach((opt) => {
-                    // Создаем контейнер карточки
                     let card = document.createElement("div");
                     card.className = "upgrade-option";
-
-                    // Создаем обертку для иконки и бейджа
                     let iconCont = document.createElement("div");
                     iconCont.className = "icon-container";
-
                     let iconCanvas = document.createElement("canvas");
                     iconCanvas.className = "icon-canvas";
                     iconCanvas.width = 80;
                     iconCanvas.height = 80;
                     iconCont.appendChild(iconCanvas);
 
-                    // Добавляем маркер уровня справа снизу
                     let badge = document.createElement("div");
                     badge.className = "level-badge";
-                    if (opt.isNew) {
-                        badge.innerText = "NEW";
-                    } else {
-                        badge.innerText = `➔ ${opt.weapon.level + 1}`;
-                    }
+                    badge.innerText = opt.isNew
+                        ? "NEW"
+                        : `➔ ${opt.weapon.level + 1}`;
                     iconCont.appendChild(badge);
 
-                    // Подпись с именем оружия под иконкой
                     let nameLabel = document.createElement("div");
                     nameLabel.className = "weapon-name";
                     nameLabel.innerText = opt.weapon.name;
-
                     card.appendChild(iconCont);
                     card.appendChild(nameLabel);
                     card.onclick = opt.action;
                     container.appendChild(card);
-
-                    // Отрисовываем векторную иконку на встроенном canvas
                     renderWeaponIcon(iconCanvas, opt.key);
                 });
             }
@@ -1959,6 +2325,7 @@
                 score = 0;
                 pendingUpgrades = 0;
                 activeBossRef = null;
+                bossArena.active = false;
 
                 Object.keys(WEAPONS).forEach((k) => {
                     WEAPONS[k].level = k === "Dart" ? 1 : 0;
@@ -2000,7 +2367,6 @@
 
             function spawnWave() {
                 if (gameState !== STATES.PLAYING) return;
-
                 let thirtySecSteps = Math.floor(gameTimer / 30);
                 let baseRate = 45;
                 let spawnInterval = Math.max(
@@ -2013,7 +2379,6 @@
                     let dist = Math.max(canvas.width, canvas.height) / 2 + 60;
                     let rx = player.x + Math.cos(angle) * dist;
                     let ry = player.y + Math.sin(angle) * dist;
-
                     let typeRand = Math.random();
                     let variant = "normal";
 
@@ -2044,17 +2409,25 @@
 
             function prepareBossSpawn() {
                 gameState = STATES.BOSS_SPAWN;
-                bossSpawnTimer = 60;
-                let bIdx = (currentWorld - 1) % BOSS_CONFIGS.length;
+                bossSpawnTimer = 90;
+
+                // Создаем и замыкаем арену вокруг игрока
+                bossArena.x = player.x;
+                bossArena.y = player.y;
+                bossArena.active = true;
+
                 enemyPool.clear();
                 enemyBulletPool.clear();
-                enemyPool.get()?.spawn(player.x, player.y - 240, "boss", bIdx);
+                // Спавним одного супер-босса в центре новой арены
+                enemyPool.get()?.spawn(bossArena.x, bossArena.y - 120, "boss");
             }
 
             function handleBossDeath() {
                 enemyBulletPool.clear();
                 activeBossRef = null;
-                worldPortal.spawn(player.x, player.y - 120);
+                unlockWeapon("Chain");
+                // Портал появляется строго в центре арены
+                worldPortal.spawn(bossArena.x, bossArena.y);
             }
 
             function goToNextWorld() {
@@ -2063,66 +2436,88 @@
                 gameTimer = 0;
                 secondsTimer = 0;
                 gameState = STATES.PLAYING;
+                bossArena.active = false; // Открываем мир заново
+
+                if (currentWorld >= 2) unlockWeapon("Pulse");
+                if (currentWorld >= 3) unlockWeapon("Beam");
+
                 enemyPool.clear();
                 bulletPool.clear();
                 enemyBulletPool.clear();
                 effectPool.clear();
             }
 
-            // --- СИСТЕМА ОТРИСОВКИ СТРУКТУРНЫХ ЭЛЕМЕНТОВ ---
+            // --- ОТРИСОВКА СТРУКТУРНЫХ ЭЛЕМЕНТОВ ---
             function renderBackground() {
-                if (
-                    gameState === STATES.BOSS_FIGHT ||
-                    gameState === STATES.BOSS_SPAWN
-                ) {
-                    ctx.strokeStyle = "rgba(255, 0, 0, 0.035)";
-                    ctx.lineWidth = 2;
-                    let centerObj = activeBossRef || player;
-                    for (
-                        let r = 50;
-                        r < Math.max(canvas.width, canvas.height);
-                        r += 65
-                    ) {
+                // Отрисовка неоновых стен арены босса
+                if (bossArena.active) {
+                    ctx.strokeStyle = "#FF0000";
+                    ctx.lineWidth = 4;
+                    let half = bossArena.size / 2;
+                    ctx.strokeRect(
+                        bossArena.x - half - camera.x,
+                        bossArena.y - half - camera.y,
+                        bossArena.size,
+                        bossArena.size,
+                    );
+
+                    // Фоновая сетка внутри арены
+                    ctx.strokeStyle = "rgba(255, 0, 0, 0.02)";
+                    ctx.lineWidth = 1;
+                    for (let i = -half; i <= half; i += 40) {
                         ctx.beginPath();
-                        ctx.arc(
-                            centerObj.x - camera.x,
-                            centerObj.y - camera.y,
-                            r,
-                            0,
-                            Math.PI * 2,
+                        ctx.moveTo(
+                            bossArena.x + i - camera.x,
+                            bossArena.y - half - camera.y,
+                        );
+                        ctx.lineTo(
+                            bossArena.x + i - camera.x,
+                            bossArena.y + half - camera.y,
+                        );
+                        ctx.stroke();
+                        ctx.beginPath();
+                        ctx.moveTo(
+                            bossArena.x - half - camera.x,
+                            bossArena.y + i - camera.y,
+                        );
+                        ctx.lineTo(
+                            bossArena.x + half - camera.x,
+                            bossArena.y + i - camera.y,
                         );
                         ctx.stroke();
                     }
-                } else {
-                    ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
-                    ctx.lineWidth = 1;
-                    let gridSize = 60 + ((currentWorld * 8) % 32);
-                    let sX =
-                        Math.floor((camera.x - canvas.width / 2) / gridSize) *
-                        gridSize;
-                    let sY =
-                        Math.floor((camera.y - canvas.height / 2) / gridSize) *
-                        gridSize;
-                    for (
-                        let x = sX;
-                        x < sX + canvas.width + gridSize * 2;
-                        x += gridSize
-                    ) {
-                        ctx.beginPath();
-                        ctx.moveTo(x - camera.x, 0);
-                        ctx.lineTo(x - camera.x, canvas.height);
-                        ctx.stroke();
-                    }
-                    for (
-                        let y = sY;
-                        y < sY + canvas.height + gridSize * 2;
-                        y += gridSize
-                    ) {
-                        ctx.beginPath();
-                        ctx.moveTo(0, y - camera.y);
-                        ctx.lineTo(canvas.width, y - camera.y);
-                        ctx.stroke();
-                    }
+                    return;
+                }
+
+                // Сетка свободного мира
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+                ctx.lineWidth = 1;
+                let gridSize = 60 + ((currentWorld * 8) % 32);
+                let sX =
+                    Math.floor((camera.x - canvas.width / 2) / gridSize) *
+                    gridSize;
+                let sY =
+                    Math.floor((camera.y - canvas.height / 2) / gridSize) *
+                    gridSize;
+                for (
+                    let x = sX;
+                    x < sX + canvas.width + gridSize * 2;
+                    x += gridSize
+                ) {
+                    ctx.beginPath();
+                    ctx.moveTo(x - camera.x, 0);
+                    ctx.lineTo(x - camera.x, canvas.height);
+                    ctx.stroke();
+                }
+                for (
+                    let y = sY;
+                    y < sY + canvas.height + gridSize * 2;
+                    y += gridSize
+                ) {
+                    ctx.beginPath();
+                    ctx.moveTo(0, y - camera.y);
+                    ctx.lineTo(canvas.width, y - camera.y);
+                    ctx.stroke();
                 }
             }
 
@@ -2157,7 +2552,11 @@
                     gameState === STATES.BOSS_SPAWN
                 ) {
                     ctx.fillStyle = "#FF0000";
-                    ctx.fillText(`ФАЗА ЛИКВИДАЦИИ БОССА`, canvas.width / 2, 30);
+                    ctx.fillText(
+                        `КЛЮЧЕВОЙ ПРОТОКОЛ ОЧИСТКИ`,
+                        canvas.width / 2,
+                        30,
+                    );
                 } else {
                     ctx.fillStyle = "#FFFFFF";
                     ctx.fillText(
@@ -2255,9 +2654,35 @@
                     );
                     ctx.fill();
                 }
+
+                for (let i = toasts.length - 1; i >= 0; i--) {
+                    let t = toasts[i];
+                    t.timer--;
+                    if (t.timer <= 0) {
+                        toasts.splice(i, 1);
+                        continue;
+                    }
+                    let alpha = Math.min(1, t.timer / 25);
+                    ctx.fillStyle = `rgba(0, 0, 0, ${alpha * 0.9})`;
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+                    ctx.lineWidth = 1.5;
+                    let tw = 260;
+                    let th = 46;
+                    let tx = canvas.width - tw - 15;
+                    let ty = 20 + i * (th + 10);
+                    ctx.fillRect(tx, ty, tw, th);
+                    ctx.strokeRect(tx, ty, tw, th);
+                    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+                    ctx.font = "bold 11px monospace";
+                    ctx.textAlign = "left";
+                    ctx.fillText(t.title, tx + 12, ty + 18);
+                    ctx.font = "10px monospace";
+                    ctx.fillStyle = `rgba(180, 180, 180, ${alpha})`;
+                    ctx.fillText(t.desc, tx + 12, ty + 33);
+                }
             }
 
-            // --- ГЛАВНЫЙ ИГРОВОЙ ЦИКЛ ENGINE ---
+            // --- ГЛАВНЫЙ ИГРОВОЙ ЦИКЛ ---
             function gameLoop() {
                 ctx.fillStyle = "#1A1A1A";
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -2269,19 +2694,22 @@
                         STATES.BOSS_SPAWN,
                         STATES.BOSS_FIGHT,
                         STATES.UPGRADE,
+                        STATES.PAUSED,
                     ].indexOf(gameState) !== -1
                 ) {
                     if (
                         pendingUpgrades > 0 &&
                         gameState !== STATES.UPGRADE &&
-                        gameState !== STATES.BOSS_SPAWN
+                        gameState !== STATES.BOSS_SPAWN &&
+                        gameState !== STATES.PAUSED
                     ) {
                         triggerUpgradeScreen();
                     }
 
                     if (
                         gameState !== STATES.UPGRADE &&
-                        gameState !== STATES.BOSS_SPAWN
+                        gameState !== STATES.BOSS_SPAWN &&
+                        gameState !== STATES.PAUSED
                     ) {
                         secondsTimer++;
                         if (secondsTimer >= 60) {
@@ -2315,7 +2743,7 @@
                         xpPool.updateAll();
                         effectPool.updateAll();
                         worldPortal.update();
-                        spawnWave();
+                        if (!bossArena.active) spawnWave();
                     }
 
                     camera.x += (player.x - canvas.width / 2 - camera.x) * 0.1;
@@ -2324,23 +2752,20 @@
                     renderBackground();
                     xpPool.drawAll();
                     worldPortal.draw();
-
                     player.draw();
                     enemyPool.drawAll();
                     bulletPool.drawAll();
                     enemyBulletPool.drawAll();
-                    effectPool.drawAll(); // Статические эффекты (включая анимированный лазер) рисуются тут
-
+                    effectPool.drawAll();
                     renderUI();
 
                     if (gameState === STATES.BOSS_SPAWN) {
                         bossSpawnTimer--;
-                        if (bossSpawnTimer > 46) {
+                        if (bossSpawnTimer > 76) {
                             ctx.fillStyle = "#FFFFFF";
                             ctx.fillRect(0, 0, canvas.width, canvas.height);
                         }
-
-                        ctx.fillStyle = "rgba(26,26,26,0.92)";
+                        ctx.fillStyle = "rgba(26,26,26,0.95)";
                         ctx.fillRect(
                             0,
                             canvas.height / 2 - 60,
@@ -2351,7 +2776,7 @@
                         ctx.font = "bold 20px monospace";
                         ctx.textAlign = "center";
                         ctx.fillText(
-                            "КРИТИЧЕСКАЯ УГРОЗА СИСТЕМЫ",
+                            "ВХОД НА АРЕНУ СМЕРТИ",
                             canvas.width / 2,
                             canvas.height / 2 - 12,
                         );
@@ -2362,24 +2787,69 @@
                             canvas.width / 2,
                             canvas.height / 2 + 24,
                         );
-
                         if (bossSpawnTimer <= 0) gameState = STATES.BOSS_FIGHT;
+                    }
+
+                    if (gameState === STATES.PAUSED) {
+                        ctx.fillStyle = "rgba(26, 26, 26, 0.82)";
+                        ctx.fillRect(0, 0, canvas.width, canvas.height);
+                        ctx.fillStyle = "#FFFFFF";
+                        ctx.textAlign = "center";
+                        ctx.font = "bold 26px monospace";
+                        ctx.fillText(
+                            "ПАУЗА СИСТЕМЫ",
+                            canvas.width / 2,
+                            canvas.height / 2 - 15,
+                        );
+                        ctx.fillStyle = "rgba(255,255,255,0.4)";
+                        ctx.font = "12px monospace";
+                        ctx.fillText(
+                            "НАЖМИТЕ ESC ИЛИ P ДЛЯ ПРОДОЛЖЕНИЯ",
+                            canvas.width / 2,
+                            canvas.height / 2 + 20,
+                        );
                     }
                 } else if (gameState === STATES.MENU) {
                     ctx.fillStyle = "#FFFFFF";
-                    ctx.font = "26px monospace";
+                    ctx.font = "28px monospace";
                     ctx.textAlign = "center";
                     ctx.fillText(
                         "WHITE VS RED",
                         canvas.width / 2,
-                        canvas.height / 2 - 15,
+                        canvas.height / 2 - 120,
                     );
-                    ctx.font = "13px monospace";
+                    ctx.font = "12px monospace";
                     ctx.fillText(
                         "КЛИКНИТЕ ЭКРАН ДЛЯ ЗАПУСКА",
                         canvas.width / 2,
-                        canvas.height / 2 + 35,
+                        canvas.height / 2 - 85,
                     );
+
+                    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+                    ctx.font = "11px monospace";
+                    ctx.fillText(
+                        "— МЕТА-ДОСТИЖЕНИЯ И РАЗБЛОКИРОВКА —",
+                        canvas.width / 2,
+                        canvas.height / 2 - 35,
+                    );
+
+                    let startY = canvas.height / 2 - 10;
+                    ACHIEVEMENT_LIST.forEach((ach, index) => {
+                        let isUnl = unlockedWeapons.includes(ach.id);
+                        ctx.fillStyle = isUnl
+                            ? "#FFFFFF"
+                            : "rgba(255, 255, 255, 0.15)";
+                        ctx.textAlign = index % 2 === 0 ? "right" : "left";
+                        let posX =
+                            canvas.width / 2 + (index % 2 === 0 ? -20 : 20);
+                        let posY = startY + Math.floor(index / 2) * 22;
+                        let symbol = isUnl ? "✔" : "🔒";
+                        ctx.fillText(
+                            `${symbol} ${ach.cond} -> ${ach.id}`,
+                            posX,
+                            posY,
+                        );
+                    });
                 } else if (gameState === STATES.GAMEOVER) {
                     ctx.fillStyle = "#FF0000";
                     ctx.font = "34px monospace";
@@ -2406,7 +2876,10 @@
                 requestAnimationFrame(gameLoop);
             }
 
+            loadMetaProgress();
             gameLoop();
         </script>
     </body>
 </html>
+
+```
