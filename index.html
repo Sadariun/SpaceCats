@@ -7,7 +7,7 @@
             content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
         />
         <title>The Return of the rat king</title>
-        <script src="https://cdn.tailwindcss.com"></script>
+        <!-- www -->
         <style>
             * {
                 box-sizing: border-box;
@@ -147,6 +147,12 @@
                 box-shadow: 0 0 10px #ffffff;
                 transition: width 0.1s linear;
             }
+
+            #pause-button:active {
+                transform: scale(0.95);
+                background: #ffffff;
+                color: #1a1a1a;
+            }
         </style>
     </head>
     <body>
@@ -167,7 +173,32 @@
         </div>
 
         <canvas id="gameCanvas"></canvas>
-
+        <button
+            id="pause-button"
+            style="
+                position: absolute;
+                bottom: 20px;
+                right: 20px;
+                width: 50px;
+                height: 50px;
+                border-radius: 50%;
+                background: rgba(26, 26, 26, 0.9);
+                border: 2px solid #ffffff;
+                color: #ffffff;
+                font-size: 24px;
+                font-family: monospace;
+                cursor: pointer;
+                z-index: 90;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                backdrop-filter: blur(4px);
+                transition: all 0.2s ease;
+                box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+            "
+        >
+            ⏸
+        </button>
         <div id="upgrade-screen">
             <h2>ВЫБОР МОДИФИКАТОРА</h2>
             <div id="options-container"></div>
@@ -3173,6 +3204,47 @@
             requestAnimationFrame((timestamp) => {
                 lastTime = timestamp;
                 gameLoop(timestamp);
+            });
+
+            function initMobilePauseButton() {
+                const pauseBtn = document.getElementById("pause-button");
+                if (!pauseBtn) return;
+
+                // Проверяем, мобильное ли устройство
+                const isMobile =
+                    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+                        navigator.userAgent,
+                    );
+
+                if (isMobile) {
+                    pauseBtn.style.display = "flex";
+                    pauseBtn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        // Используем существующую логику паузы из gameLoop
+                        if (
+                            gameState === STATES.PLAYING ||
+                            gameState === STATES.PORTAL_OPEN ||
+                            gameState === STATES.BOSS_SPAWN ||
+                            gameState === STATES.BOSS_FIGHT
+                        ) {
+                            previousState = gameState;
+                            gameState = STATES.PAUSED;
+                        } else if (gameState === STATES.PAUSED) {
+                            gameState = previousState;
+                            lastTime = performance.now();
+                        }
+                    });
+                } else {
+                    pauseBtn.style.display = "none";
+                }
+            }
+
+            // Вызываем инициализацию
+            initMobilePauseButton();
+
+            // При изменении размера окна проверяем
+            window.addEventListener("resize", () => {
+                initMobilePauseButton();
             });
         </script>
     </body>
