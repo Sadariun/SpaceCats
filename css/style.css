@@ -1058,6 +1058,10 @@
     }
 }
 
+button {
+    padding: 12px 6px;
+}
+
 button:hover {
     cursor: pointer;
 }

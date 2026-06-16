@@ -351,7 +351,6 @@
             >
                 <button
                     id="start-game-btn"
-                    style="padding: 12px 6px"
                     class="flex-1 py-3 px-6 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-xs tracking-wider font-mono rounded-lg transition-all duration-300 shadow-[0_0_15px_rgba(0,255,255,0.3)] hover:scale-105 active:scale-95"
                 >
                     ЗАПУСТИТЬ ЯДРО
@@ -1673,19 +1672,19 @@
                     if (variant === "boss_rat_king") {
                         this.name = "ВИНЛОК [SYSTEM.WIN_LOCK]";
                         this.radius = 42;
-                        this.hp = 2000 * difficultyMultiplier;
+                        this.hp = 2000 + 10000 * difficultyMultiplier;
                         this.speed = 1.0;
                         activeBossRef = this;
                     } else if (variant === "boss_antivirus") {
                         this.name = "АНТИВИРУС [SYSTEM.ANTIVIRUS]";
                         this.radius = 45;
-                        this.hp = 5000 * difficultyMultiplier;
+                        this.hp = 12000 + 10000 * difficultyMultiplier;
                         this.speed = 0.0;
                         activeBossRef = this;
                     } else if (variant === "boss_kernel_panic") {
                         this.name = "СБОЙ ЯДРА [SYSTEM.KERNEL_PANIC]";
                         this.radius = 50;
-                        this.hp = 9000 * difficultyMultiplier;
+                        this.hp = 9000 + 15000 * difficultyMultiplier;
                         this.speed = 1.2;
                         activeBossRef = this;
                     } else if (variant === "panic_decoy") {
@@ -1695,14 +1694,14 @@
                         this.shootTimer = 0;
                     } else if (variant === "dasher") {
                         this.radius = 11;
-                        this.hp = 25 * difficultyMultiplier;
+                        this.hp = 25 + 150 * difficultyMultiplier;
                         this.speed = 1.8;
                         this.dashState = 0;
                         this.dashCooldown = Math.floor(Math.random() * 60);
                         this.dashTimer = 0;
                     } else if (variant === "shooter") {
                         this.radius = 9;
-                        this.hp = 14 * difficultyMultiplier;
+                        this.hp = 50 * difficultyMultiplier;
                         this.speed = 1.6;
                     } else if (variant === "exploder") {
                         this.radius = 11;
@@ -1710,7 +1709,7 @@
                         this.speed = 2.4;
                     } else {
                         this.radius = 10;
-                        this.hp = 24 * difficultyMultiplier;
+                        this.hp = 40 * difficultyMultiplier;
                         this.speed = 2.0;
                     }
                     this.maxHp = this.hp;
@@ -3649,7 +3648,7 @@
                 checkScoreProgression();
 
                 if (gameState === STATES.PLAYING) {
-                    gameTimer += 1.5;
+                    gameTimer += 0.6;
                 }
 
                 if (
@@ -3659,7 +3658,9 @@
                 )
                     handleBossDeath();
                 else {
-                    xpPool.get()?.spawn(enemy.x, enemy.y);
+                    if (!bossArena.active) {
+                        xpPool.get()?.spawn(enemy.x, enemy.y);
+                    }
                     if (enemy.variant === "exploder") {
                         effectPool
                             .get()
@@ -4514,13 +4515,13 @@
                 ctx.font = "bold 13px monospace";
                 ctx.textAlign = "left";
                 ctx.fillText(
-                    `ФУНКЦИИ ЯДРА: [УРОВЕНЬ ${player.level}] ${pendingUpgrades > 0 ? `(+${pendingUpgrades})` : ""}`,
+                    `УРОВЕНЬ ${player.level} ${pendingUpgrades > 0 ? `(+${pendingUpgrades})` : ""}`,
                     20,
                     45,
                 );
                 ctx.fillStyle = "#00ffff";
                 ctx.shadowColor = "#00ffff";
-                ctx.fillText(`ПОТОКИ ДАННЫХ (СЧЕТ): ${score}`, 20, 65);
+                ctx.fillText(`СЧЕТ: ${score}`, 20, 65);
                 ctx.fillText(`СЕКТОР: ${currentWorld}`, 20, 85);
 
                 const barWidth = 220;
@@ -4675,6 +4676,8 @@
                 ) {
                     triggerUpgradeScreen();
                 }
+
+                if (bossDeathDelay) return;
 
                 // Если игра на паузе — показываем кнопку выхода в меню
                 if (gameState === STATES.PAUSED) {
@@ -4888,18 +4891,27 @@
                             canvas.width / 2,
                             canvas.height / 2 - 15,
                         );
-                        ctx.fillStyle = "rgba(255,255,255,0.4)";
-                        ctx.font = "12px monospace";
-                        ctx.fillText(
-                            "НАЖМИТЕ P ИЛИ ПРОБЕЛ ДЛЯ СБРОСА ПАУЗЫ",
-                            canvas.width / 2,
-                            canvas.height / 2 + 20,
-                        );
+                        if (window.innerWidth > 768) {
+                            ctx.fillStyle = "rgba(255,255,255,0.4)";
+                            ctx.font = "12px monospace";
+                            ctx.fillText(
+                                "НАЖМИТЕ P ИЛИ ПРОБЕЛ ДЛЯ СБРОСА ПАУЗЫ",
+                                canvas.width / 2,
+                                canvas.height / 2 + 20,
+                            );
+                        }
                     }
                 } else if (gameState === STATES.MENU) {
                     // Отрисовывается через HTML-слой меню
                 } else if (gameState === STATES.GAMEOVER) {
                     // Отрисовывается через кастомный HTML-экран GameOver
+                }
+
+                if (bossDeathDelay) {
+                    ctx.save();
+                    ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.restore();
                 }
 
                 requestAnimationFrame(gameLoop);
@@ -5010,8 +5022,6 @@
                         sfx.playUpgrade();
                         gameState = STATES.PLAYING;
                         lastTime = performance.now();
-
-                        // 🎵 Запускаем музыку заново
                         startMusic();
                     });
                 });
@@ -5037,12 +5047,16 @@
                     )
                         return;
                     sfx.init();
+
                     const touch = e.touches[0];
-                    if (touch.clientX < canvas.width / 2) {
+                    const touchX = touch.clientX;
+                    const winW = window.innerWidth;
+
+                    if (touchX < winW / 2) {
                         joystick.active = true;
-                        joystick.startX = touch.clientX;
+                        joystick.startX = touchX;
                         joystick.startY = touch.clientY;
-                        joystick.currentX = touch.clientX;
+                        joystick.currentX = touchX;
                         joystick.currentY = touch.clientY;
                     }
                 },
@@ -5207,11 +5221,34 @@
                 }
             }
 
+            let bossDeathDelay = false;
+
             function handleBossDeath() {
                 enemyBulletPool.clear();
                 activeBossRef = null;
                 spawnWarnings.length = 0;
                 sfx.playLevelUp();
+
+                // Лечим игрока
+                const healAmount = 30;
+                player.hp = Math.min(player.hp + healAmount, player.maxHp);
+                floatingTextPool
+                    .get()
+                    ?.spawn(
+                        player.x,
+                        player.y - 30,
+                        `+${healAmount} HP`,
+                        "#00ff00",
+                    );
+
+                // Блокируем игру
+                bossDeathDelay = true;
+
+                // Через 1 секунду показываем портал и разблокируем игру
+                setTimeout(() => {
+                    bossDeathDelay = false;
+                    worldPortal.spawn(bossArena.x, bossArena.y);
+                }, 1000);
 
                 if (currentWorld === 1) {
                     unlockWeapon("Pulse");
@@ -5235,10 +5272,7 @@
                         timer: 240,
                     });
                 }
-
-                worldPortal.spawn(bossArena.x, bossArena.y);
             }
-
             function goToNextWorld() {
                 currentWorld++;
                 difficultyMultiplier *= 1.45;
