@@ -457,7 +457,7 @@
         </button>
 
         <!-- Кнопка "Выйти в меню" на паузе -->
-        <button id="pause-menu-btn">⬅ ВЫЙТИ В МЕНЮ</button>
+        <button id="pause-menu-btn">ВЫЙТИ В МЕНЮ</button>
 
         <!-- Upgrade Screen Overlay -->
         <div id="upgrade-screen">
@@ -1011,13 +1011,28 @@
                     sfx.init();
                     sfx.muted = !sfx.muted;
 
-                    // Если музыка заглушена — ставим громкость 0, иначе возвращаем
+                    // 🎵 Управляем музыкой вместе со звуками
                     if (sfx.muted) {
-                        if (bgMusic) bgMusic.volume = 0;
+                        // Выключаем всё
+                        if (bgMusic) {
+                            bgMusic.volume = 0;
+                            // Если музыка играет - ставим на паузу
+                            if (isMusicPlaying) {
+                                bgMusic.pause();
+                            }
+                        }
                     } else {
-                        if (bgMusic && isMusicPlaying) {
-                            bgMusic.volume = TARGET_VOLUME;
-                            currentVolume = TARGET_VOLUME;
+                        // Включаем всё обратно
+                        if (bgMusic) {
+                            // Если музыка была на паузе - возобновляем
+                            if (bgMusic.paused && isMusicPlaying) {
+                                bgMusic.play().catch(() => {});
+                            }
+                            // Возвращаем громкость
+                            if (isMusicPlaying) {
+                                bgMusic.volume = TARGET_VOLUME;
+                                currentVolume = TARGET_VOLUME;
+                            }
                         }
                     }
 
@@ -1477,6 +1492,7 @@
                     "none";
                 resetGame();
                 gameState = STATES.MENU;
+                updatePauseButtonVisibility();
                 renderMenuAchievements();
                 document.getElementById("upgrade-screen").style.display =
                     "none";
@@ -3525,6 +3541,7 @@
 
             function triggerUpgradeScreen() {
                 gameState = STATES.UPGRADE;
+                updatePauseButtonVisibility();
                 const screen = document.getElementById("upgrade-screen");
                 const container = document.getElementById("options-container");
                 screen.style.display = "block";
@@ -4667,6 +4684,7 @@
             }
 
             function gameTick() {
+                updatePauseButtonVisibility();
                 // Если игра в процессе и есть апгрейды — показываем экран апгрейда
                 if (
                     pendingUpgrades > 0 &&
@@ -5051,14 +5069,11 @@
                     const touch = e.touches[0];
                     const touchX = touch.clientX;
                     const winW = window.innerWidth;
-
-                    if (touchX < winW / 2) {
-                        joystick.active = true;
-                        joystick.startX = touchX;
-                        joystick.startY = touch.clientY;
-                        joystick.currentX = touchX;
-                        joystick.currentY = touch.clientY;
-                    }
+                    joystick.active = true;
+                    joystick.startX = touchX;
+                    joystick.startY = touch.clientY;
+                    joystick.currentX = touchX;
+                    joystick.currentY = touch.clientY;
                 },
                 { passive: true },
             );
@@ -5297,7 +5312,7 @@
                 const isMobile = window.innerWidth < 1024;
 
                 if (isMobile) {
-                    pauseBtn.style.display = "flex";
+                    // pauseBtn.style.display = "flex";
                 } else {
                     pauseBtn.style.display = "none";
                     if (gameState === STATES.PAUSED) {
@@ -5305,6 +5320,19 @@
                         lastTime = performance.now();
                     }
                 }
+            }
+
+            function updatePauseButtonVisibility() {
+                const pauseBtn = document.getElementById("pause-button");
+                const isVisible =
+                    (gameState === STATES.PLAYING ||
+                        gameState === STATES.PORTAL_OPEN ||
+                        gameState === STATES.BOSS_SPAWN ||
+                        gameState === STATES.BOSS_FIGHT ||
+                        gameState === STATES.PAUSED) &&
+                    window.innerWidth < 1024;
+
+                pauseBtn.style.display = isVisible ? "flex" : "none";
             }
 
             const pauseBtnElement = document.getElementById("pause-button");
