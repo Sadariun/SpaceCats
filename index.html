@@ -21,6 +21,7 @@
             html {
                 width: 100%;
                 height: 100%;
+                min-height: 100dvh;
                 overflow: hidden;
                 background-color: #070709;
                 font-family: "Courier New", Courier, monospace;
@@ -30,6 +31,7 @@
                 display: block;
                 width: 100vw;
                 height: 100vh;
+                height: 100dvh;
             }
 
             /* CRT scanlines effect */
@@ -1418,11 +1420,15 @@
                 });
             }
 
+            function ensureAudioContext() {
+                sfx.init();
+            }
             // Trigger fullscreen banner when starting core to satisfy monetization flow
             document
                 .getElementById("start-game-btn")
                 .addEventListener("click", (e) => {
                     e.stopPropagation();
+                    ensureAudioContext();
                     showYandexInterstitial(() => {
                         document.getElementById("menu-screen").style.display =
                             "none";
@@ -1441,6 +1447,7 @@
                 .addEventListener("click", (e) => {
                     e.stopPropagation();
                     openArsenal();
+                    ensureAudioContext();
                 });
 
             document
@@ -4901,7 +4908,7 @@
             const keys = {};
             window.addEventListener("keydown", (e) => {
                 keys[e.code] = true;
-                if (e.code === "Spacebar" || e.code === "KeyP") {
+                if (e.code === "Space" || e.code === "KeyP") {
                     if (
                         [
                             STATES.PLAYING,
