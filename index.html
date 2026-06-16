@@ -1672,19 +1672,19 @@
                     if (variant === "boss_rat_king") {
                         this.name = "ВИНЛОК [SYSTEM.WIN_LOCK]";
                         this.radius = 42;
-                        this.hp = 2000 + 10000 * difficultyMultiplier;
+                        this.hp = 2000 + 10000 * (difficultyMultiplier - 1);
                         this.speed = 1.0;
                         activeBossRef = this;
                     } else if (variant === "boss_antivirus") {
                         this.name = "АНТИВИРУС [SYSTEM.ANTIVIRUS]";
                         this.radius = 45;
-                        this.hp = 12000 + 10000 * difficultyMultiplier;
+                        this.hp = 12000 + 10000 * (difficultyMultiplier - 1);
                         this.speed = 0.0;
                         activeBossRef = this;
                     } else if (variant === "boss_kernel_panic") {
                         this.name = "СБОЙ ЯДРА [SYSTEM.KERNEL_PANIC]";
                         this.radius = 50;
-                        this.hp = 9000 + 15000 * difficultyMultiplier;
+                        this.hp = 9000 + 15000 * (difficultyMultiplier - 1);
                         this.speed = 1.2;
                         activeBossRef = this;
                     } else if (variant === "panic_decoy") {
@@ -1694,7 +1694,7 @@
                         this.shootTimer = 0;
                     } else if (variant === "dasher") {
                         this.radius = 11;
-                        this.hp = 25 + 150 * difficultyMultiplier;
+                        this.hp = 25 + 150 * (difficultyMultiplier - 1);
                         this.speed = 1.8;
                         this.dashState = 0;
                         this.dashCooldown = Math.floor(Math.random() * 60);
