@@ -7,7 +7,7 @@
             content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
         />
         <title>Система // Выживание</title>
-        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="./css/style.css" rel="stylesheet" />
         <script src="https://yandex.ru/games/sdk/v2"></script>
         <style>
             * {
@@ -338,6 +338,7 @@
                 Система // Выживание
             </h1>
             <p
+                style="margin: 12px 0"
                 class="text-cyan-400 text-[10px] md:text-xs font-mono tracking-widest mb-10 text-center animate-pulse"
             >
                 [ ВЕРСИЯ ЯДРА: REMASTERED ]
@@ -348,6 +349,7 @@
             >
                 <button
                     id="start-game-btn"
+                    style="padding: 12px 6px"
                     class="flex-1 py-3 px-6 bg-cyan-500 hover:bg-cyan-400 text-black font-extrabold text-xs tracking-wider font-mono rounded-lg transition-all duration-300 shadow-[0_0_15px_rgba(0,255,255,0.3)] hover:scale-105 active:scale-95"
                 >
                     ЗАПУСТИТЬ ЯДРО
@@ -362,6 +364,7 @@
 
             <div class="w-full max-w-[460px] px-6">
                 <p
+                    style="margin: 32px 0 10px"
                     class="text-cyan-600 text-[10px] font-mono mb-4 text-center tracking-widest"
                 >
                     — ТРЕБОВАНИЯ ДЕШИФРАЦИИ —
@@ -390,6 +393,13 @@
         </div>
 
         <canvas id="gameCanvas"></canvas>
+
+        <!-- 🎵 ФОНОВАЯ МУЗЫКА -->
+        <audio id="bg-music" loop preload="auto">
+            <source src="./music/bgmusic.mp3" type="audio/mpeg" />
+            <!-- Добавь fallback на другой формат, если нужно -->
+            <!-- <source src="путь/к_твоей/музыке.ogg" type="audio/ogg"> -->
+        </audio>
 
         <!-- Sound Toggle Button -->
         <button
@@ -830,13 +840,186 @@
             }
             const sfx = new AudioEngine();
 
-            // Toggle Audio Muted State
+            function t(key) {
+                return key; // Просто возвращаем ключ как есть
+            }
+
+            // Заглушка для смены языка (ничего не делает)
+            function setLanguage(lang) {
+                // Ничего не делаем
+            }
+
+            // Заглушка для обновления текстов
+            function updateAllTexts() {
+                // Ничего не делаем
+            }
+
+            // Язык по умолчанию
+            const currentLang = "ru";
+            // ========== 🎵 УПРАВЛЕНИЕ ФОНОВОЙ МУЗЫКОЙ С FADE ==========
+            const bgMusic = document.getElementById("bg-music");
+            let isMusicPlaying = false;
+            let isFading = false;
+            let fadeInterval = null;
+            let currentVolume = 0;
+
+            const FADE_SPEED = 0.015; // Скорость затухания (чем меньше, тем плавнее)
+            const TARGET_VOLUME = 0.25; // Целевая громкость (25%)
+
+            function startMusic() {
+                if (!bgMusic) return;
+
+                // Если музыка уже играет и не на паузе — выходим
+                if (isMusicPlaying && !bgMusic.paused) return;
+
+                bgMusic.volume = 0;
+                currentVolume = 0;
+                bgMusic.loop = true;
+
+                bgMusic
+                    .play()
+                    .then(() => {
+                        isMusicPlaying = true;
+                        fadeInMusic();
+                        console.log(
+                            "[Music]: Фоновая музыка запущена с fade-in",
+                        );
+                    })
+                    .catch((error) => {
+                        console.log(
+                            "[Music]: Автозапуск заблокирован, ждём действие пользователя",
+                        );
+                    });
+            }
+
+            function pauseMusic() {
+                if (!bgMusic || !isMusicPlaying) return;
+                fadeOutMusic(() => {
+                    bgMusic.pause();
+                    isMusicPlaying = false;
+                    console.log(
+                        "[Music]: Фоновая музыка на паузе (fade-out завершён)",
+                    );
+                });
+            }
+
+            function resumeMusic() {
+                if (!bgMusic || isMusicPlaying) return;
+
+                if (bgMusic.paused) {
+                    bgMusic.volume = 0;
+                    currentVolume = 0;
+                    bgMusic
+                        .play()
+                        .then(() => {
+                            isMusicPlaying = true;
+                            fadeInMusic();
+                            console.log(
+                                "[Music]: Фоновая музыка возобновлена с fade-in",
+                            );
+                        })
+                        .catch((error) => {
+                            console.log(
+                                "[Music]: Ошибка возобновления:",
+                                error,
+                            );
+                        });
+                }
+            }
+
+            function stopMusic() {
+                if (!bgMusic) return;
+
+                fadeOutMusic(() => {
+                    bgMusic.pause();
+                    bgMusic.currentTime = 0;
+                    isMusicPlaying = false;
+                    console.log("[Music]: Фоновая музыка остановлена");
+                });
+            }
+
+            function fadeInMusic() {
+                if (fadeInterval) {
+                    clearInterval(fadeInterval);
+                    fadeInterval = null;
+                }
+
+                isFading = true;
+                currentVolume = 0;
+                bgMusic.volume = 0;
+
+                fadeInterval = setInterval(() => {
+                    if (currentVolume < TARGET_VOLUME) {
+                        currentVolume = Math.min(
+                            currentVolume + FADE_SPEED,
+                            TARGET_VOLUME,
+                        );
+                        bgMusic.volume = currentVolume;
+                    } else {
+                        clearInterval(fadeInterval);
+                        fadeInterval = null;
+                        isFading = false;
+                    }
+                }, 16);
+            }
+
+            function fadeOutMusic(callback) {
+                if (fadeInterval) {
+                    clearInterval(fadeInterval);
+                    fadeInterval = null;
+                }
+
+                isFading = true;
+                currentVolume = bgMusic.volume;
+
+                fadeInterval = setInterval(() => {
+                    if (currentVolume > 0) {
+                        currentVolume = Math.max(currentVolume - FADE_SPEED, 0);
+                        bgMusic.volume = currentVolume;
+                    } else {
+                        clearInterval(fadeInterval);
+                        fadeInterval = null;
+                        isFading = false;
+                        bgMusic.volume = 0;
+                        if (callback) callback();
+                    }
+                }, 16);
+            }
+
+            function stopMusicImmediate() {
+                if (fadeInterval) {
+                    clearInterval(fadeInterval);
+                    fadeInterval = null;
+                }
+                if (bgMusic) {
+                    bgMusic.pause();
+                    bgMusic.currentTime = 0;
+                    bgMusic.volume = 0;
+                    currentVolume = 0;
+                }
+                isMusicPlaying = false;
+                isFading = false;
+                console.log("[Music]: Фоновая музыка остановлена мгновенно");
+            }
+
+            // Toggle Audio Muted State (также влияет на фоновую музыку)
             document
                 .getElementById("audio-toggle")
                 .addEventListener("click", (e) => {
                     e.stopPropagation();
                     sfx.init();
                     sfx.muted = !sfx.muted;
+
+                    // Если музыка заглушена — ставим громкость 0, иначе возвращаем
+                    if (sfx.muted) {
+                        if (bgMusic) bgMusic.volume = 0;
+                    } else {
+                        if (bgMusic && isMusicPlaying) {
+                            bgMusic.volume = TARGET_VOLUME;
+                            currentVolume = TARGET_VOLUME;
+                        }
+                    }
+
                     document.getElementById("audio-toggle").innerText =
                         sfx.muted ? "🔇" : "🔊";
                     document.getElementById("audio-toggle").style.borderColor =
@@ -1158,10 +1341,12 @@
                 gameState = STATES.MENU;
                 document.getElementById("menu-screen").style.display = "flex";
                 document.getElementById("gameCanvas").style.display = "block";
-                // Скрываем кнопку выхода в меню, если она видна
                 document.getElementById("pause-menu-btn").style.display =
                     "none";
                 renderMenuAchievements();
+
+                // Останавливаем музыку при входе в меню
+                stopMusic();
             }
 
             function renderMenuAchievements() {
@@ -1177,9 +1362,9 @@
                     if (isUnl) {
                         item.className += " border-cyan-950 text-cyan-400";
                         item.innerHTML = `
-                            <span class="text-cyan-400">✔</span>
-                            <div class="truncate">
-                                <div class="text-gray-400 font-semibold truncate text-[8px]">${ach.cond}</div>
+                            <span class="text-cyan-400" style="margin-left: 12px">✔</span>
+                            <div class="truncate"style="margin: 8px 4px;">
+                                <div class="text-gray-400 font-semibold truncate text-[8px]" >${ach.cond}</div>
                                 <div class="text-[7px] text-cyan-600 font-bold">${ach.id.toUpperCase()} ДОСТУПЕН</div>
                             </div>
                         `;
@@ -1187,8 +1372,8 @@
                         item.className +=
                             " border-red-950/20 opacity-50 text-gray-600";
                         item.innerHTML = `
-                            <span class="text-red-500">🔒</span>
-                            <div class="truncate">
+                            <span class="text-red-500" style="margin-left: 12px">🔒</span>
+                            <div class="truncate" style="margin: 8px 4px;">
                                 <div class="text-gray-500 truncate text-[8px]">${ach.cond}</div>
                                 <div class="text-[7px] text-red-800 font-bold">БЛОКИРОВКА</div>
                             </div>
@@ -1245,6 +1430,9 @@
                         sfx.playUpgrade();
                         gameState = STATES.PLAYING;
                         lastTime = performance.now();
+
+                        // 🎵 Запускаем фоновую музыку
+                        startMusic();
                     });
                 });
 
@@ -1275,25 +1463,22 @@
              * Функция выхода в главное меню из любого состояния игры
              */
             function goToMenu() {
-                // Сначала показываем меню
+                // 🎵 Останавливаем музыку с затуханием
+                stopMusic();
+
                 document.getElementById("menu-screen").style.display = "flex";
-                // Скрываем кнопку выхода в меню
                 document.getElementById("pause-menu-btn").style.display =
                     "none";
-                // Сбрасываем игру
                 resetGame();
-                // Устанавливаем состояние меню
                 gameState = STATES.MENU;
-                // Обновляем достижения в меню
                 renderMenuAchievements();
-                // Если были открыты другие экраны — закрываем их
                 document.getElementById("upgrade-screen").style.display =
                     "none";
                 document.getElementById("gameover-screen").style.display =
                     "none";
                 document.getElementById("arsenal-screen").style.display =
                     "none";
-                // Перезапускаем звуковой контекст, если он был приостановлен
+
                 if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
                     sfx.ctx.resume();
                 }
@@ -1318,15 +1503,15 @@
             function getBackgroundColor() {
                 switch (currentWorld) {
                     case 1:
-                        return "#070709"; // Темный, как сейчас
+                        return "#070709";
                     case 2:
-                        return "#0a0a1a"; // Синеватый
+                        return "#0a0a1a";
                     case 3:
-                        return "#1a0a0a"; // Красноватый
+                        return "#1a0a0a";
                     case 4:
-                        return "#0a1a0a"; // Зеленоватый
+                        return "#0a1a0a";
                     case 5:
-                        return "#1a0a1a"; // Фиолетовый
+                        return "#1a0a1a";
                     default:
                         return "#070709";
                 }
@@ -1481,19 +1666,19 @@
                     if (variant === "boss_rat_king") {
                         this.name = "ВИНЛОК [SYSTEM.WIN_LOCK]";
                         this.radius = 42;
-                        this.hp = 4000 * difficultyMultiplier;
+                        this.hp = 2000 * difficultyMultiplier;
                         this.speed = 1.0;
                         activeBossRef = this;
                     } else if (variant === "boss_antivirus") {
                         this.name = "АНТИВИРУС [SYSTEM.ANTIVIRUS]";
                         this.radius = 45;
-                        this.hp = 7000 * difficultyMultiplier;
+                        this.hp = 5000 * difficultyMultiplier;
                         this.speed = 0.0;
                         activeBossRef = this;
                     } else if (variant === "boss_kernel_panic") {
                         this.name = "СБОЙ ЯДРА [SYSTEM.KERNEL_PANIC]";
                         this.radius = 50;
-                        this.hp = 12000 * difficultyMultiplier;
+                        this.hp = 9000 * difficultyMultiplier;
                         this.speed = 1.2;
                         activeBossRef = this;
                     } else if (variant === "panic_decoy") {
@@ -4699,7 +4884,7 @@
                         ctx.fillStyle = "rgba(255,255,255,0.4)";
                         ctx.font = "12px monospace";
                         ctx.fillText(
-                            "НАЖМИТЕ ESC ИЛИ P ДЛЯ СБРОСА ПАУЗЫ",
+                            "НАЖМИТЕ P ИЛИ ПРОБЕЛ ДЛЯ СБРОСА ПАУЗЫ",
                             canvas.width / 2,
                             canvas.height / 2 + 20,
                         );
@@ -4716,7 +4901,7 @@
             const keys = {};
             window.addEventListener("keydown", (e) => {
                 keys[e.code] = true;
-                if (e.code === "Escape" || e.code === "KeyP") {
+                if (e.code === "Spacebar" || e.code === "KeyP") {
                     if (
                         [
                             STATES.PLAYING,
@@ -4727,8 +4912,12 @@
                     ) {
                         previousState = gameState;
                         gameState = STATES.PAUSED;
+                        // 🎵 Ставим музыку на паузу с затуханием
+                        pauseMusic();
                     } else if (gameState === STATES.PAUSED) {
                         gameState = previousState;
+                        // 🎵 Возобновляем музыку с появлением
+                        resumeMusic();
                     }
                 }
             });
@@ -4736,12 +4925,14 @@
 
             // Triggers custom UI layer with ad integration instead of instantly blocking loop
             function handlePlayerDeath() {
+                // 🎵 Ставим музыку на паузу при смерти
+                pauseMusic();
+
                 gameState = STATES.GAMEOVER;
 
                 const statsElem = document.getElementById("gameover-stats");
                 statsElem.innerHTML = `Зачищено секторов: <span class="text-cyan-400 font-bold">${currentWorld}</span><br>Расшифровано данных (Счет): <span class="text-cyan-400 font-bold">${score}</span>`;
 
-                // Кнопку вознаграждения делаем недоступной, если она уже использовалась за этот забег
                 const reviveBtn = document.getElementById("revive-ad-btn");
                 if (adReviveUsedInCurrentRun) {
                     reviveBtn.style.opacity = "0.4";
@@ -4766,11 +4957,9 @@
 
                     showYandexRewarded(
                         () => {
-                            // Награда получена: восстанавливаем HP и очищаем окружение
                             adReviveUsedInCurrentRun = true;
                             player.hp = 100;
 
-                            // Создаем вокруг игрока суперимпульс, уничтожающий/отбрасывающий врагов
                             effectPool
                                 .get()
                                 ?.spawn(
@@ -4782,15 +4971,16 @@
                                 );
                             dealAreaDamage(player.x, player.y, 350, 200);
 
-                            // Скрываем экран GameOver и возвращаемся в игру
                             document.getElementById(
                                 "gameover-screen",
                             ).style.display = "none";
                             gameState = STATES.PLAYING;
                             lastTime = performance.now();
+
+                            // 🎵 Возобновляем музыку после воскрешения
+                            resumeMusic();
                         },
                         () => {
-                            // Ошибка показа видео
                             toasts.push({
                                 title: "СБОЙ СИГНАЛА РЕКЛАМЫ",
                                 desc: "Не удалось загрузить рекламный блок. Попробуйте снова.",
@@ -4813,6 +5003,9 @@
                         sfx.playUpgrade();
                         gameState = STATES.PLAYING;
                         lastTime = performance.now();
+
+                        // 🎵 Запускаем музыку заново
+                        startMusic();
                     });
                 });
 
@@ -4891,7 +5084,7 @@
                 pendingUpgrades = 0;
                 activeBossRef = null;
                 bossArena.active = false;
-                adReviveUsedInCurrentRun = false; // Reset revive usage counter
+                adReviveUsedInCurrentRun = false;
 
                 spawnWarnings.length = 0;
 
@@ -4933,7 +5126,6 @@
                 worldPortal.active = false;
                 activeLightnings = [];
 
-                // Скрываем кнопку выхода в меню при сбросе
                 document.getElementById("pause-menu-btn").style.display =
                     "none";
             }
@@ -5086,8 +5278,12 @@
                     ) {
                         previousState = gameState;
                         gameState = STATES.PAUSED;
+                        // 🎵 Ставим музыку на паузу
+                        pauseMusic();
                     } else if (gameState === STATES.PAUSED) {
                         gameState = previousState;
+                        // 🎵 Возобновляем музыку
+                        resumeMusic();
                         lastTime = performance.now();
                     }
                 });
