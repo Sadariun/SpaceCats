@@ -17,6 +17,15 @@
                 margin: 0;
                 padding: 0;
             }
+            #bg-music {
+                display: none !important;
+                /* Или */
+                position: absolute !important;
+                width: 0 !important;
+                height: 0 !important;
+                opacity: 0 !important;
+                pointer-events: none !important;
+            }
             body,
             html {
                 width: 100%;
@@ -510,6 +519,89 @@
                             console.log("[Yandex SDK]: Инициализация успешна");
                             ysdkInstance = ysdk;
 
+                            if (ysdk.features && ysdk.features.GameplayAPI) {
+                                // Когда платформа говорит приостановить игру
+                                ysdk.features.GameplayAPI.onPause(() => {
+                                    console.log(
+                                        "[SDK]: Платформа приостановила игру",
+                                    );
+                                    if (
+                                        [
+                                            STATES.PLAYING,
+                                            STATES.PORTAL_OPEN,
+                                            STATES.BOSS_SPAWN,
+                                            STATES.BOSS_FIGHT,
+                                        ].includes(gameState)
+                                    ) {
+                                        previousState = gameState;
+                                        gameState = STATES.PAUSED;
+                                        pauseMusic();
+                                    }
+                                    if (
+                                        sfx &&
+                                        sfx.ctx &&
+                                        sfx.ctx.state === "running"
+                                    ) {
+                                        sfx.ctx.suspend();
+                                    }
+                                });
+
+                                // Когда платформа говорит возобновить игру
+                                ysdk.features.GameplayAPI.onResume(() => {
+                                    console.log(
+                                        "[SDK]: Платформа возобновила игру",
+                                    );
+                                    if (
+                                        gameState === STATES.PAUSED &&
+                                        previousState !== STATES.PAUSED
+                                    ) {
+                                        gameState = previousState;
+                                        resumeMusic();
+                                    }
+                                    if (
+                                        sfx &&
+                                        sfx.ctx &&
+                                        sfx.ctx.state === "suspended"
+                                    ) {
+                                        sfx.ctx.resume();
+                                    }
+                                });
+                            }
+
+                            // 🚀 Запрос полноэкранного режима
+                            if (ysdk.screen && ysdk.screen.fullscreen) {
+                                ysdk.screen.fullscreen
+                                    .request()
+                                    .then(() => {
+                                        console.log(
+                                            "[Yandex SDK]: Полноэкранный режим включён",
+                                        );
+                                    })
+                                    .catch((err) => {
+                                        console.log(
+                                            "[Yandex SDK]: Ошибка полноэкранного режима:",
+                                            err,
+                                        );
+                                    });
+                            }
+
+                            // 📱 Блокировка системных жестов через SDK
+                            if (ysdk.features && ysdk.features.DeviceMotion) {
+                                // Запрашиваем разрешение на блокировку жестов
+                                ysdk.features.DeviceMotion.requestPermission()
+                                    .then(() => {
+                                        console.log(
+                                            "[Yandex SDK]: Разрешение на блокировку жестов получено",
+                                        );
+                                    })
+                                    .catch((err) => {
+                                        console.log(
+                                            "[Yandex SDK]: Ошибка запроса разрешения:",
+                                            err,
+                                        );
+                                    });
+                            }
+
                             // Уведомляем систему, что игра готова (Loading API)
                             if (ysdk.features && ysdk.features.LoadingAPI) {
                                 ysdk.features.LoadingAPI.ready();
@@ -527,7 +619,6 @@
                     );
                 }
             }
-
             // Полноэкранная реклама (Interstitial)
             function showYandexInterstitial(onCloseCallback) {
                 if (ysdkInstance) {
@@ -4955,6 +5046,74 @@
                         gameState = previousState;
                         // 🎵 Возобновляем музыку с появлением
                         resumeMusic();
+                    }
+                }
+            });
+            // ========== 🎵 УПРАВЛЕНИЕ ЗВУКОМ ПРИ ПЕРЕКЛЮЧЕНИИ ВКЛАДОК ==========
+            let isTabHidden = false;
+
+            document.addEventListener("visibilitychange", () => {
+                if (document.hidden) {
+                    isTabHidden = true;
+                    if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                        sfx.ctx.suspend();
+                    }
+                    if (bgMusic && isMusicPlaying) {
+                        bgMusic.pause();
+                    }
+                } else {
+                    isTabHidden = false;
+                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                        sfx.ctx.resume();
+                    }
+                    if (bgMusic && isMusicPlaying && bgMusic.paused) {
+                        bgMusic.play().catch(() => {});
+                        bgMusic.volume = TARGET_VOLUME;
+                        currentVolume = TARGET_VOLUME;
+                    }
+                }
+            });
+
+            window.addEventListener("blur", () => {
+                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                    sfx.ctx.suspend();
+                }
+                if (bgMusic && isMusicPlaying) {
+                    bgMusic.pause();
+                }
+            });
+
+            window.addEventListener("focus", () => {
+                if (!isTabHidden) {
+                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                        sfx.ctx.resume();
+                    }
+                    if (bgMusic && isMusicPlaying && bgMusic.paused) {
+                        bgMusic.play().catch(() => {});
+                        bgMusic.volume = TARGET_VOLUME;
+                        currentVolume = TARGET_VOLUME;
+                    }
+                }
+            });
+
+            document.addEventListener("pause", () => {
+                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                    sfx.ctx.suspend();
+                }
+                if (bgMusic && isMusicPlaying) {
+                    bgMusic.pause();
+                }
+            });
+
+            document.addEventListener("resume", () => {
+                if (!isTabHidden) {
+                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                        sfx.ctx.resume();
+                    }
+                    if (bgMusic && isMusicPlaying && bgMusic.paused) {
+                        bgMusic.play().catch(() => {});
+                        bgMusic.volume = TARGET_VOLUME;
+                        currentVolume = TARGET_VOLUME;
                     }
                 }
             });
