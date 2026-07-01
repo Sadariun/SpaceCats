@@ -677,19 +677,19 @@
                                         );
                                     });
                             }
-                            if (ysdk.features && ysdk.features.LoadingAPI) {
-                                try {
-                                    ysdk.features.LoadingAPI.ready();
-                                    console.log(
-                                        "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
-                                    );
-                                } catch (e) {
-                                    console.warn(
-                                        "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
-                                        e,
-                                    );
-                                }
-                            }
+                            // if (ysdk.features && ysdk.features.LoadingAPI) {
+                            //     try {
+                            //         ysdk.features.LoadingAPI.ready();
+                            //         console.log(
+                            //             "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
+                            //         );
+                            //     } catch (e) {
+                            //         console.warn(
+                            //             "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
+                            //             e,
+                            //         );
+                            //     }
+                            // }
                         })
                         .catch((err) => {
                             console.warn(
@@ -1214,6 +1214,7 @@
                 GAMEOVER: 5,
                 UPGRADE: 6,
                 PAUSED: 7,
+                REVIVING: 8,
             };
             let gameState = STATES.LOADING;
             let previousState = STATES.PLAYING;
@@ -1405,6 +1406,24 @@
                             document.getElementById("preloader").style.display =
                                 "none";
                             showMenu();
+
+                            if (
+                                ysdkInstance &&
+                                ysdkInstance.features &&
+                                ysdkInstance.features.LoadingAPI
+                            ) {
+                                try {
+                                    ysdkInstance.features.LoadingAPI.ready();
+                                    console.log(
+                                        "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
+                                    );
+                                } catch (e) {
+                                    console.warn(
+                                        "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
+                                        e,
+                                    );
+                                }
+                            }
                         }, 500);
                     }
                 }, 30);
@@ -4854,15 +4873,16 @@
 
                 if (bossDeathDelay) return;
 
-                if (gameState === STATES.PAUSED) {
+                if (gameState === STATES.PAUSED && !reviveAnimationActive) {
                     document.getElementById("pause-menu-btn").style.display =
                         "block";
-                    // Если музыка играет - ставим на паузу
                     if (bgMusic && isMusicPlaying && !bgMusic.paused) {
                         fadeOutMusic(() => {
                             bgMusic.pause();
+                            isMusicPlaying = false;
                         });
                     }
+                    return;
                 } else {
                     document.getElementById("pause-menu-btn").style.display =
                         "none";
@@ -4979,6 +4999,7 @@
                             STATES.BOSS_FIGHT,
                             STATES.UPGRADE,
                             STATES.PAUSED,
+                            STATES.REVIVING,
                         ].indexOf(gameState) !== -1
                     ) {
                         gameTick();
@@ -5172,23 +5193,41 @@
             let isTabHidden = false;
 
             window.addEventListener("blur", () => {
-                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                    sfx.ctx.suspend();
-                }
-                if (bgMusic && isMusicPlaying) {
-                    bgMusic.pause();
+                // СТАВИМ ИГРУ НА ПАУЗУ при потере фокуса
+                if (
+                    [
+                        STATES.PLAYING,
+                        STATES.PORTAL_OPEN,
+                        STATES.BOSS_SPAWN,
+                        STATES.BOSS_FIGHT,
+                    ].includes(gameState)
+                ) {
+                    previousState = gameState;
+                    gameState = STATES.PAUSED;
+                    pauseMusic();
+                    if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                        sfx.ctx.suspend();
+                    }
+                    updatePauseButtonVisibility();
                 }
             });
 
             window.addEventListener("focus", () => {
                 if (!isTabHidden) {
-                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                        sfx.ctx.resume();
-                    }
-                    if (bgMusic && isMusicPlaying && bgMusic.paused) {
-                        bgMusic.play().catch(() => {});
-                        bgMusic.volume = TARGET_VOLUME;
-                        currentVolume = TARGET_VOLUME;
+                    // ВОЗОБНОВЛЯЕМ ИГРУ при получении фокуса
+                    if (
+                        gameState === STATES.PAUSED &&
+                        previousState !== STATES.PAUSED
+                    ) {
+                        if (!sfx.muted) {
+                            resumeMusic();
+                        }
+                        gameState = previousState;
+                        lastTime = performance.now();
+                        if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                            sfx.ctx.resume();
+                        }
+                        updatePauseButtonVisibility();
                     }
                 }
             });
@@ -5629,13 +5668,12 @@
             }
 
             function startReviveExplosionAnimation() {
-                // Сначала показываем эффект взрыва
                 reviveAnimationActive = true;
                 reviveAnimationProgress = 0;
 
                 // Сохраняем текущее состояние игры
                 const prevState = gameState;
-                gameState = STATES.PAUSED;
+                gameState = STATES.REVIVING; // ← Используем специальное состояние
 
                 // Создаём множество взрывов по всей арене
                 const explosionCount = 12;
@@ -5647,13 +5685,11 @@
                         const x = player.x + Math.cos(angle) * dist;
                         const y = player.y + Math.sin(angle) * dist;
 
-                        // Создаём большой взрыв
                         effectPool
                             .get()
                             ?.spawn(x, y, 80 + Math.random() * 60, 20, "blast");
                         sfx.playExplode();
 
-                        // Дополнительные искры
                         for (let j = 0; j < 5; j++) {
                             const sx = x + (Math.random() - 0.5) * 60;
                             const sy = y + (Math.random() - 0.5) * 60;
@@ -5670,7 +5706,6 @@
                     }, i * 80);
                 }
 
-                // Через 1.5 секунды после начала анимации - уничтожаем всех врагов
                 setTimeout(() => {
                     if (!reviveAnimationActive) return;
 
@@ -5678,34 +5713,26 @@
                     for (let i = 0; i < enemyPool.activeCount; i++) {
                         const enemy = enemyPool.objects[i];
                         if (enemy.active) {
-                            // Создаём взрыв на месте каждого врага
                             effectPool
                                 .get()
                                 ?.spawn(enemy.x, enemy.y, 50, 15, "blast");
                             effectPool
                                 .get()
                                 ?.spawn(enemy.x, enemy.y, 30, 10, "enemy_exp");
-                            // Уничтожаем врага
                             enemyPool.release(enemy);
                         }
                     }
 
-                    // Очищаем все вражеские пули
                     enemyBulletPool.clear();
 
-                    // Завершаем анимацию
                     reviveAnimationActive = false;
-
-                    // Возрождаем игрока
                     player.hp = 100;
 
-                    // Большой финальный взрыв
                     effectPool
                         .get()
                         ?.spawn(player.x, player.y, 350, 45, "pulse_wave");
                     sfx.playLevelUp();
 
-                    // Показываем текст возрождения
                     floatingTextPool
                         .get()
                         ?.spawn(
@@ -5721,11 +5748,9 @@
                     lastTime = performance.now();
                     resumeMusic();
 
-                    // 🚀 ГЕЙМПЛЕЙ ВОЗОБНОВЛЕН
                     triggerYandexGameplayStart();
                 }, 1500);
             }
-
             function updatePauseButtonVisibility() {
                 const pauseBtn = document.getElementById("pause-button");
                 const isVisible =
