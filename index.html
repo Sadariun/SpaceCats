@@ -9,17 +9,20 @@
         <title>Система // Выживание</title>
         <link href="./css/style.css" rel="stylesheet" />
         <script src="https://yandex.ru/games/sdk/v2"></script>
+
         <style>
             * {
                 box-sizing: border-box;
                 user-select: none;
                 -webkit-user-select: none;
+                -moz-user-select: none;
+                -ms-user-select: none;
+                -webkit-touch-callout: none;
                 margin: 0;
                 padding: 0;
             }
             #bg-music {
                 display: none !important;
-                /* Или */
                 position: absolute !important;
                 width: 0 !important;
                 height: 0 !important;
@@ -261,7 +264,6 @@
                 text-shadow: 0 0 8px rgba(255, 51, 51, 0.4);
             }
 
-            /* Стили для кастомного экрана GameOver с возможностью воскрешения */
             #gameover-screen {
                 display: none;
                 position: absolute;
@@ -280,7 +282,6 @@
                 border-radius: 12px;
             }
 
-            /* Кнопка выхода в меню на экране паузы */
             #pause-menu-btn {
                 display: none;
                 position: absolute;
@@ -311,7 +312,6 @@
         </style>
     </head>
     <body class="crt">
-        <!-- Preloader Screen -->
         <div id="preloader">
             <h1
                 class="text-xl md:text-2xl font-bold tracking-widest text-center text-cyan-400"
@@ -337,7 +337,6 @@
             </div>
         </div>
 
-        <!-- Main Menu Screen -->
         <div id="menu-screen">
             <h1
                 class="text-3xl md:text-5xl font-extrabold tracking-widest text-center text-white mb-2"
@@ -386,7 +385,6 @@
             </div>
         </div>
 
-        <!-- Weapon Arsenal Screen -->
         <div id="arsenal-screen">
             <h2
                 class="font-bold tracking-widest text-cyan-400 border-b border-cyan-800 pb-3 mb-4 text-center text-base md:text-lg font-mono"
@@ -404,14 +402,10 @@
 
         <canvas id="gameCanvas"></canvas>
 
-        <!-- 🎵 ФОНОВАЯ МУЗЫКА -->
         <audio id="bg-music" loop preload="auto">
             <source src="./music/bgmusic.mp3" type="audio/mpeg" />
-            <!-- Добавь fallback на другой формат, если нужно -->
-            <!-- <source src="путь/к_твоей/музыке.ogg" type="audio/ogg"> -->
         </audio>
 
-        <!-- Sound Toggle Button -->
         <button
             id="audio-toggle"
             style="
@@ -438,7 +432,6 @@
             🔊
         </button>
 
-        <!-- Mobile Pause button -->
         <button
             id="pause-button"
             style="
@@ -465,10 +458,8 @@
             ⏸
         </button>
 
-        <!-- Кнопка "Выйти в меню" на паузе -->
         <button id="pause-menu-btn">ВЫЙТИ В МЕНЮ</button>
 
-        <!-- Upgrade Screen Overlay -->
         <div id="upgrade-screen">
             <h2
                 class="font-bold tracking-widest text-cyan-400 border-b border-cyan-800 pb-3 mb-4 text-base md:text-lg font-mono"
@@ -478,7 +469,6 @@
             <div id="options-container"></div>
         </div>
 
-        <!-- Custom Game Over Screen overlay with Yandex Ad Revival integration -->
         <div id="gameover-screen">
             <h2
                 class="font-bold tracking-widest text-red-500 border-b border-red-950 pb-3 mb-4 text-base md:text-xl font-mono"
@@ -510,7 +500,59 @@
         <script>
             // Global SDK handlers & Safeties
             let ysdkInstance = null;
-            let adReviveUsedInCurrentRun = false; // Player can only revive once per game session
+            let adReviveUsedInCurrentRun = false;
+
+            // Блокировка вызова контекстного меню, выделения и перетаскивания элементов страницы (Требование 1.6.2.7)
+            document.addEventListener("contextmenu", (e) => {
+                e.preventDefault();
+            });
+            document.addEventListener("selectstart", (e) => {
+                e.preventDefault();
+            });
+            document.addEventListener("dragstart", (e) => {
+                e.preventDefault();
+            });
+
+            // Safe helper wrappers to guarantee GameplayAPI calls do not crash on local environments
+            function triggerYandexGameplayStart() {
+                if (
+                    ysdkInstance &&
+                    ysdkInstance.features &&
+                    ysdkInstance.features.GameplayAPI
+                ) {
+                    try {
+                        ysdkInstance.features.GameplayAPI.start();
+                        console.log(
+                            "[Yandex SDK]: GameplayAPI.start() вызван успешно.",
+                        );
+                    } catch (e) {
+                        console.warn(
+                            "[Yandex SDK]: Ошибка вызова GameplayAPI.start()",
+                            e,
+                        );
+                    }
+                }
+            }
+
+            function triggerYandexGameplayStop() {
+                if (
+                    ysdkInstance &&
+                    ysdkInstance.features &&
+                    ysdkInstance.features.GameplayAPI
+                ) {
+                    try {
+                        ysdkInstance.features.GameplayAPI.stop();
+                        console.log(
+                            "[Yandex SDK]: GameplayAPI.stop() вызван успешно.",
+                        );
+                    } catch (e) {
+                        console.warn(
+                            "[Yandex SDK]: Ошибка вызова GameplayAPI.stop()",
+                            e,
+                        );
+                    }
+                }
+            }
 
             function initYandexSDK() {
                 if (typeof YaGames !== "undefined") {
@@ -520,7 +562,6 @@
                             ysdkInstance = ysdk;
 
                             if (ysdk.features && ysdk.features.GameplayAPI) {
-                                // Когда платформа говорит приостановить игру
                                 ysdk.features.GameplayAPI.onPause(() => {
                                     console.log(
                                         "[SDK]: Платформа приостановила игру",
@@ -546,7 +587,6 @@
                                     }
                                 });
 
-                                // Когда платформа говорит возобновить игру
                                 ysdk.features.GameplayAPI.onResume(() => {
                                     console.log(
                                         "[SDK]: Платформа возобновила игру",
@@ -568,7 +608,6 @@
                                 });
                             }
 
-                            // 🚀 Запрос полноэкранного режима
                             if (ysdk.screen && ysdk.screen.fullscreen) {
                                 ysdk.screen.fullscreen
                                     .request()
@@ -585,9 +624,7 @@
                                     });
                             }
 
-                            // 📱 Блокировка системных жестов через SDK
                             if (ysdk.features && ysdk.features.DeviceMotion) {
-                                // Запрашиваем разрешение на блокировку жестов
                                 ysdk.features.DeviceMotion.requestPermission()
                                     .then(() => {
                                         console.log(
@@ -600,11 +637,6 @@
                                             err,
                                         );
                                     });
-                            }
-
-                            // Уведомляем систему, что игра готова (Loading API)
-                            if (ysdk.features && ysdk.features.LoadingAPI) {
-                                ysdk.features.LoadingAPI.ready();
                             }
                         })
                         .catch((err) => {
@@ -619,10 +651,9 @@
                     );
                 }
             }
-            // Полноэкранная реклама (Interstitial)
+
             function showYandexInterstitial(onCloseCallback) {
                 if (ysdkInstance) {
-                    // Паузим игру на время рекламы
                     const wasMuted = sfx.muted;
                     const prevGameState = gameState;
 
@@ -647,7 +678,7 @@
                             },
                             onClose: (wasShown) => {
                                 console.log(
-                                    "[Yandex Ads]: Полноэкранный баннер закрыт, возвращаем звук и фокус",
+                                    "[Yandex Ads]: Полноэкранный баннер закрыт",
                                 );
                                 sfx.muted = wasMuted;
                                 if (gameState === STATES.PAUSED) {
@@ -677,12 +708,10 @@
                         },
                     });
                 } else {
-                    // Локальный режим без SDK
                     if (onCloseCallback) onCloseCallback();
                 }
             }
 
-            // Реклама за вознаграждение (Rewarded - Воскрешение)
             function showYandexRewarded(onRewardedCallback, onErrorCallback) {
                 if (ysdkInstance) {
                     const wasMuted = sfx.muted;
@@ -739,7 +768,6 @@
                         },
                     });
                 } else {
-                    // Симуляция награды в локальном дев-режиме
                     console.log(
                         "[Dev mode]: Эмуляция просмотра Rewarded рекламы",
                     );
@@ -747,31 +775,6 @@
                 }
             }
 
-            // Pause & Unmute cleanly when Yandex Tab changes visibility or focus shifts
-            window.addEventListener("blur", () => {
-                if (
-                    [
-                        STATES.PLAYING,
-                        STATES.PORTAL_OPEN,
-                        STATES.BOSS_SPAWN,
-                        STATES.BOSS_FIGHT,
-                    ].includes(gameState)
-                ) {
-                    previousState = gameState;
-                    gameState = STATES.PAUSED;
-                }
-                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                    sfx.ctx.suspend();
-                }
-            });
-
-            window.addEventListener("focus", () => {
-                if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                    sfx.ctx.resume();
-                }
-            });
-
-            // Synthesizing sound effects programmatically with Web Audio API
             class AudioEngine {
                 constructor() {
                     this.ctx = null;
@@ -932,36 +935,21 @@
             }
             const sfx = new AudioEngine();
 
-            function t(key) {
-                return key; // Просто возвращаем ключ как есть
-            }
-
-            // Заглушка для смены языка (ничего не делает)
-            function setLanguage(lang) {
-                // Ничего не делаем
-            }
-
-            // Заглушка для обновления текстов
-            function updateAllTexts() {
-                // Ничего не делаем
-            }
-
-            // Язык по умолчанию
-            const currentLang = "ru";
-            // ========== 🎵 УПРАВЛЕНИЕ ФОНОВОЙ МУЗЫКОЙ С FADE ==========
             const bgMusic = document.getElementById("bg-music");
             let isMusicPlaying = false;
             let isFading = false;
             let fadeInterval = null;
             let currentVolume = 0;
 
-            const FADE_SPEED = 0.015; // Скорость затухания (чем меньше, тем плавнее)
-            const TARGET_VOLUME = 0.25; // Целевая громкость (25%)
+            const FADE_SPEED = 0.015;
+            const TARGET_VOLUME = 0.25;
 
             function startMusic() {
                 if (!bgMusic) return;
-
-                // Если музыка уже играет и не на паузе — выходим
+                if (sfx.muted) {
+                    console.log("[Music]: Музыка отключена пользователем");
+                    return;
+                }
                 if (isMusicPlaying && !bgMusic.paused) return;
 
                 bgMusic.volume = 0;
@@ -978,9 +966,7 @@
                         );
                     })
                     .catch((error) => {
-                        console.log(
-                            "[Music]: Автозапуск заблокирован, ждём действие пользователя",
-                        );
+                        console.log("[Music]: Автозапуск заблокирован");
                     });
             }
 
@@ -989,15 +975,17 @@
                 fadeOutMusic(() => {
                     bgMusic.pause();
                     isMusicPlaying = false;
-                    console.log(
-                        "[Music]: Фоновая музыка на паузе (fade-out завершён)",
-                    );
+                    console.log("[Music]: Фоновая музыка на паузе");
                 });
             }
 
             function resumeMusic() {
                 if (!bgMusic || isMusicPlaying) return;
 
+                if (sfx.muted) {
+                    console.log("[Music]: Музыка отключена пользователем");
+                    return;
+                }
                 if (bgMusic.paused) {
                     bgMusic.volume = 0;
                     currentVolume = 0;
@@ -1078,23 +1066,6 @@
                 }, 16);
             }
 
-            function stopMusicImmediate() {
-                if (fadeInterval) {
-                    clearInterval(fadeInterval);
-                    fadeInterval = null;
-                }
-                if (bgMusic) {
-                    bgMusic.pause();
-                    bgMusic.currentTime = 0;
-                    bgMusic.volume = 0;
-                    currentVolume = 0;
-                }
-                isMusicPlaying = false;
-                isFading = false;
-                console.log("[Music]: Фоновая музыка остановлена мгновенно");
-            }
-
-            // Toggle Audio Muted State (также влияет на фоновую музыку)
             document
                 .getElementById("audio-toggle")
                 .addEventListener("click", (e) => {
@@ -1102,24 +1073,18 @@
                     sfx.init();
                     sfx.muted = !sfx.muted;
 
-                    // 🎵 Управляем музыкой вместе со звуками
                     if (sfx.muted) {
-                        // Выключаем всё
                         if (bgMusic) {
                             bgMusic.volume = 0;
-                            // Если музыка играет - ставим на паузу
                             if (isMusicPlaying) {
                                 bgMusic.pause();
                             }
                         }
                     } else {
-                        // Включаем всё обратно
                         if (bgMusic) {
-                            // Если музыка была на паузе - возобновляем
                             if (bgMusic.paused && isMusicPlaying) {
                                 bgMusic.play().catch(() => {});
                             }
-                            // Возвращаем громкость
                             if (isMusicPlaying) {
                                 bgMusic.volume = TARGET_VOLUME;
                                 currentVolume = TARGET_VOLUME;
@@ -1296,14 +1261,7 @@
             }
 
             const toasts = [];
-            let unlockedWeapons = [
-                "Dart",
-                "Orbit",
-                "Aura",
-                // "Bounce",
-                // "Rain",
-                "Cross",
-            ];
+            let unlockedWeapons = ["Dart", "Orbit", "Aura", "Cross"];
 
             const ACHIEVEMENT_LIST = [
                 { id: "Pulse", cond: "Пройти Мир 1" },
@@ -1346,6 +1304,25 @@
                             document.getElementById("preloader").style.display =
                                 "none";
                             showMenu();
+
+                            // 🚀 Уведомляем Yandex Games, что ресурсы игры загружены полностью (Loading API)
+                            if (
+                                ysdkInstance &&
+                                ysdkInstance.features &&
+                                ysdkInstance.features.LoadingAPI
+                            ) {
+                                try {
+                                    ysdkInstance.features.LoadingAPI.ready();
+                                    console.log(
+                                        "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
+                                    );
+                                } catch (e) {
+                                    console.warn(
+                                        "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
+                                        e,
+                                    );
+                                }
+                            }
                         }, 500);
                     }
                 }, 30);
@@ -1451,8 +1428,6 @@
                 document.getElementById("pause-menu-btn").style.display =
                     "none";
                 renderMenuAchievements();
-
-                // Останавливаем музыку при входе в меню
                 stopMusic();
             }
 
@@ -1470,8 +1445,8 @@
                         item.className += " border-cyan-950 text-cyan-400";
                         item.innerHTML = `
                             <span class="text-cyan-400" style="margin-left: 12px">✔</span>
-                            <div class="truncate"style="margin: 8px 4px;">
-                                <div class="text-gray-400 font-semibold truncate text-[8px]" >${ach.cond}</div>
+                            <div class="truncate" style="margin: 8px 4px;">
+                                <div class="text-gray-400 font-semibold truncate text-[8px]">${ach.cond}</div>
                                 <div class="text-[7px] text-cyan-600 font-bold">${ach.id.toUpperCase()} ДОСТУПЕН</div>
                             </div>
                         `;
@@ -1528,7 +1503,7 @@
             function ensureAudioContext() {
                 sfx.init();
             }
-            // Trigger fullscreen banner when starting core to satisfy monetization flow
+
             document
                 .getElementById("start-game-btn")
                 .addEventListener("click", (e) => {
@@ -1541,9 +1516,10 @@
                         sfx.playUpgrade();
                         gameState = STATES.PLAYING;
                         lastTime = performance.now();
-
-                        // 🎵 Запускаем фоновую музыку
                         startMusic();
+
+                        // 🚀 ГЕЙМПЛЕЙ НАЧАЛСЯ: Уведомляем Yandex Games Gameplay API
+                        triggerYandexGameplayStart();
                     });
                 });
 
@@ -1563,7 +1539,6 @@
                         "none";
                 });
 
-            // ========== НОВОЕ: Обработчик кнопки выхода в меню из паузы ==========
             document
                 .getElementById("pause-menu-btn")
                 .addEventListener("click", (e) => {
@@ -1571,11 +1546,10 @@
                     goToMenu();
                 });
 
-            /**
-             * Функция выхода в главное меню из любого состояния игры
-             */
             function goToMenu() {
-                // 🎵 Останавливаем музыку с затуханием
+                // 🛑 ГЕЙМПЛЕЙ ОСТАНОВЛЕН: Уведомляем Yandex Games Gameplay API
+                triggerYandexGameplayStop();
+
                 stopMusic();
 
                 document.getElementById("menu-screen").style.display = "flex";
@@ -1613,6 +1587,7 @@
             const bossArena = { x: 0, y: 0, size: 650, active: false };
             const camera = { x: 0, y: 0 };
             let zoom = 1.0;
+
             function getBackgroundColor() {
                 switch (currentWorld) {
                     case 1:
@@ -3470,7 +3445,6 @@
                 }
             }
 
-            // Рендеринг иконок
             function renderProceduralIcon(cvs, type) {
                 let c = cvs.getContext("2d");
                 let w = cvs.width,
@@ -4776,7 +4750,6 @@
 
             function gameTick() {
                 updatePauseButtonVisibility();
-                // Если игра в процессе и есть апгрейды — показываем экран апгрейда
                 if (
                     pendingUpgrades > 0 &&
                     gameState !== STATES.UPGRADE &&
@@ -4788,7 +4761,6 @@
 
                 if (bossDeathDelay) return;
 
-                // Если игра на паузе — показываем кнопку выхода в меню
                 if (gameState === STATES.PAUSED) {
                     document.getElementById("pause-menu-btn").style.display =
                         "block";
@@ -5010,10 +4982,6 @@
                             );
                         }
                     }
-                } else if (gameState === STATES.MENU) {
-                    // Отрисовывается через HTML-слой меню
-                } else if (gameState === STATES.GAMEOVER) {
-                    // Отрисовывается через кастомный HTML-экран GameOver
                 }
 
                 if (bossDeathDelay) {
@@ -5040,36 +5008,52 @@
                     ) {
                         previousState = gameState;
                         gameState = STATES.PAUSED;
-                        // 🎵 Ставим музыку на паузу с затуханием
                         pauseMusic();
                     } else if (gameState === STATES.PAUSED) {
                         gameState = previousState;
-                        // 🎵 Возобновляем музыку с появлением
                         resumeMusic();
                     }
                 }
             });
-            // ========== 🎵 УПРАВЛЕНИЕ ЗВУКОМ ПРИ ПЕРЕКЛЮЧЕНИИ ВКЛАДОК ==========
+
             let isTabHidden = false;
 
             document.addEventListener("visibilitychange", () => {
                 if (document.hidden) {
                     isTabHidden = true;
-                    if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                        sfx.ctx.suspend();
-                    }
-                    if (bgMusic && isMusicPlaying) {
-                        bgMusic.pause();
+                    // СТАВИМ ИГРУ НА ПАУЗУ
+                    if (
+                        [
+                            STATES.PLAYING,
+                            STATES.PORTAL_OPEN,
+                            STATES.BOSS_SPAWN,
+                            STATES.BOSS_FIGHT,
+                        ].includes(gameState)
+                    ) {
+                        previousState = gameState;
+                        gameState = STATES.PAUSED;
+                        pauseMusic();
+                        if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                            sfx.ctx.suspend();
+                        }
+                        updatePauseButtonVisibility();
                     }
                 } else {
                     isTabHidden = false;
-                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                        sfx.ctx.resume();
-                    }
-                    if (bgMusic && isMusicPlaying && bgMusic.paused) {
-                        bgMusic.play().catch(() => {});
-                        bgMusic.volume = TARGET_VOLUME;
-                        currentVolume = TARGET_VOLUME;
+                    // ВОЗОБНОВЛЯЕМ ИГРУ
+                    if (
+                        gameState === STATES.PAUSED &&
+                        previousState !== STATES.PAUSED
+                    ) {
+                        if (!sfx.muted) {
+                            resumeMusic();
+                        }
+                        gameState = previousState;
+                        lastTime = performance.now();
+                        if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                            sfx.ctx.resume();
+                        }
+                        updatePauseButtonVisibility();
                     }
                 }
             });
@@ -5119,11 +5103,96 @@
             });
             window.addEventListener("keyup", (e) => (keys[e.code] = false));
 
-            // Triggers custom UI layer with ad integration instead of instantly blocking loop
-            function handlePlayerDeath() {
-                // 🎵 Ставим музыку на паузу при смерти
-                pauseMusic();
+            function resetControls() {
+                Object.keys(keys).forEach((key) => {
+                    keys[key] = false;
+                });
+                joystick.active = false;
+                joystick.vx = 0;
+                joystick.vy = 0;
+            }
 
+            window.addEventListener("blur", () => {
+                resetControls();
+                if (
+                    [
+                        STATES.PLAYING,
+                        STATES.PORTAL_OPEN,
+                        STATES.BOSS_SPAWN,
+                        STATES.BOSS_FIGHT,
+                    ].includes(gameState)
+                ) {
+                    previousState = gameState;
+                    gameState = STATES.PAUSED;
+                    pauseMusic();
+                }
+                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                    sfx.ctx.suspend();
+                }
+            });
+
+            window.addEventListener("focus", () => {
+                resetControls();
+                if (
+                    gameState === STATES.PAUSED &&
+                    previousState !== STATES.PAUSED
+                ) {
+                    gameState = previousState;
+                    resumeMusic();
+                }
+                if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                    sfx.ctx.resume();
+                }
+            });
+
+            document.addEventListener("visibilitychange", () => {
+                if (document.hidden) {
+                    resetControls();
+                    if (
+                        [
+                            STATES.PLAYING,
+                            STATES.PORTAL_OPEN,
+                            STATES.BOSS_SPAWN,
+                            STATES.BOSS_FIGHT,
+                        ].includes(gameState)
+                    ) {
+                        previousState = gameState;
+                        gameState = STATES.PAUSED;
+                        pauseMusic();
+                    }
+                    if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                        sfx.ctx.suspend();
+                    }
+                } else {
+                    resetControls();
+                    if (
+                        gameState === STATES.PAUSED &&
+                        previousState !== STATES.PAUSED
+                    ) {
+                        gameState = previousState;
+                        resumeMusic();
+                    }
+                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                        sfx.ctx.resume();
+                    }
+                }
+            });
+
+            window.addEventListener("touchcancel", () => {
+                resetControls();
+            });
+
+            window.addEventListener("touchend", () => {
+                resetControls();
+            });
+
+            function handlePlayerDeath() {
+                if (gameState === STATES.GAMEOVER) return;
+
+                // 🛑 ГЕЙМПЛЕЙ ОСТАНОВЛЕН: Уведомляем Yandex Games Gameplay API
+                triggerYandexGameplayStop();
+
+                pauseMusic();
                 gameState = STATES.GAMEOVER;
 
                 const statsElem = document.getElementById("gameover-stats");
@@ -5144,7 +5213,6 @@
                     "block";
             }
 
-            // Обработчик кнопки Воскрешения за рекламу
             document
                 .getElementById("revive-ad-btn")
                 .addEventListener("click", (e) => {
@@ -5172,9 +5240,10 @@
                             ).style.display = "none";
                             gameState = STATES.PLAYING;
                             lastTime = performance.now();
-
-                            // 🎵 Возобновляем музыку после воскрешения
                             resumeMusic();
+
+                            // 🚀 ГЕЙМПЛЕЙ ВОЗОБНОВЛЕН: Снова отправляем уведомление о старте геймплея
+                            triggerYandexGameplayStart();
                         },
                         () => {
                             toasts.push({
@@ -5186,7 +5255,6 @@
                     );
                 });
 
-            // Кнопка НАЧАТЬ ЗАНОВО (обычный рестарт с показом межстраничной рекламы)
             document
                 .getElementById("restart-game-btn")
                 .addEventListener("click", (e) => {
@@ -5200,6 +5268,9 @@
                         gameState = STATES.PLAYING;
                         lastTime = performance.now();
                         startMusic();
+
+                        // 🚀 ГЕЙМПЛЕЙ НАЧАЛСЯ: Уведомляем Gameplay API
+                        triggerYandexGameplayStart();
                     });
                 });
 
@@ -5227,7 +5298,6 @@
 
                     const touch = e.touches[0];
                     const touchX = touch.clientX;
-                    const winW = window.innerWidth;
                     joystick.active = true;
                     joystick.startX = touchX;
                     joystick.startY = touch.clientY;
@@ -5403,7 +5473,6 @@
                 spawnWarnings.length = 0;
                 sfx.playLevelUp();
 
-                // Лечим игрока
                 const healAmount = 30;
                 player.hp = Math.min(player.hp + healAmount, player.maxHp);
                 floatingTextPool
@@ -5415,10 +5484,8 @@
                         "#00ff00",
                     );
 
-                // Блокируем игру
                 bossDeathDelay = true;
 
-                // Через 1 секунду показываем портал и разблокируем игру
                 setTimeout(() => {
                     bossDeathDelay = false;
                     worldPortal.spawn(bossArena.x, bossArena.y);
@@ -5447,6 +5514,7 @@
                     });
                 }
             }
+
             function goToNextWorld() {
                 currentWorld++;
                 difficultyMultiplier *= 1.45;
@@ -5469,10 +5537,7 @@
                 if (!pauseBtn) return;
 
                 const isMobile = window.innerWidth < 1024;
-
-                if (isMobile) {
-                    // pauseBtn.style.display = "flex";
-                } else {
+                if (!isMobile) {
                     pauseBtn.style.display = "none";
                     if (gameState === STATES.PAUSED) {
                         gameState = previousState;
@@ -5506,11 +5571,9 @@
                     ) {
                         previousState = gameState;
                         gameState = STATES.PAUSED;
-                        // 🎵 Ставим музыку на паузу
                         pauseMusic();
                     } else if (gameState === STATES.PAUSED) {
                         gameState = previousState;
-                        // 🎵 Возобновляем музыку
                         resumeMusic();
                         lastTime = performance.now();
                     }
@@ -5520,7 +5583,7 @@
             initMobilePauseButton();
             window.addEventListener("resize", initMobilePauseButton);
 
-            // Инициализация при старте
+            // Инициализация при старте системы
             initYandexSDK();
             startPreloader();
 
