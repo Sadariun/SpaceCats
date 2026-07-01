@@ -501,6 +501,8 @@
             // Global SDK handlers & Safeties
             let ysdkInstance = null;
             let adReviveUsedInCurrentRun = false;
+            let isPlatformPaused = false; // Отслеживает, поставлена ли игра на паузу через SDK или рекламу
+            let isGameReady = false; // Отслеживает окончание работы прелоадера игры
 
             // Блокировка вызова контекстного меню, выделения и перетаскивания элементов страницы (Требование 1.6.2.7)
             document.addEventListener("contextmenu", (e) => {
@@ -512,6 +514,28 @@
             document.addEventListener("dragstart", (e) => {
                 e.preventDefault();
             });
+
+            // Безопасный триггер LoadingAPI.ready() при совпадении двух событий (игра загрузилась + SDK готов)
+            function checkAndCallSDKReady() {
+                if (isGameReady && ysdkInstance) {
+                    if (
+                        ysdkInstance.features &&
+                        ysdkInstance.features.LoadingAPI
+                    ) {
+                        try {
+                            ysdkInstance.features.LoadingAPI.ready();
+                            console.log(
+                                "[Yandex SDK]: LoadingAPI.ready() успешно выполнен при синхронизации событий.",
+                            );
+                        } catch (e) {
+                            console.warn(
+                                "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
+                                e,
+                            );
+                        }
+                    }
+                }
+            }
 
             // Safe helper wrappers to guarantee GameplayAPI calls do not crash on local environments
             function triggerYandexGameplayStart() {
@@ -560,6 +584,10 @@
                         .then((ysdk) => {
                             console.log("[Yandex SDK]: Инициализация успешна");
                             ysdkInstance = ysdk;
+
+                            // Сигнализируем о готовности SDK для синхронизатора ready()
+                            checkAndCallSDKReady();
+
                             try {
                                 if (ysdk.environment && ysdk.environment.i18n) {
                                     const lang = ysdk.environment.i18n.lang;
@@ -600,6 +628,7 @@
                                     console.log(
                                         "[SDK]: Платформа приостановила игру",
                                     );
+                                    isPlatformPaused = true; // Фиксируем платформенную паузу
                                     if (
                                         [
                                             STATES.PLAYING,
@@ -626,24 +655,26 @@
                                     console.log(
                                         "[SDK]: Платформа возобновила игру",
                                     );
-                                    if (
-                                        gameState === STATES.PAUSED &&
-                                        previousState !== STATES.PAUSED
-                                    ) {
-                                        gameState = previousState;
+                                    isPlatformPaused = false; // Снимаем флаг платформенной паузы
+
+                                    // Если игра на паузе - просто возвращаемся в предыдущее состояние
+                                    if (gameState === STATES.PAUSED) {
+                                        // Всегда возобновляем, если игра была на паузе
                                         if (!sfx.muted) {
                                             resumeMusic();
                                         }
-                                        lastTime = performance.now(); // ✅ КРИТИЧЕСКИ ВАЖНО
+                                        gameState = previousState;
+                                        lastTime = performance.now();
+
+                                        if (
+                                            sfx &&
+                                            sfx.ctx &&
+                                            sfx.ctx.state === "suspended"
+                                        ) {
+                                            sfx.ctx.resume();
+                                        }
+                                        updatePauseButtonVisibility();
                                     }
-                                    if (
-                                        sfx &&
-                                        sfx.ctx &&
-                                        sfx.ctx.state === "suspended"
-                                    ) {
-                                        sfx.ctx.resume();
-                                    }
-                                    updatePauseButtonVisibility(); // Обновляем кнопку паузы
                                 });
                             }
 
@@ -677,19 +708,6 @@
                                         );
                                     });
                             }
-                            // if (ysdk.features && ysdk.features.LoadingAPI) {
-                            //     try {
-                            //         ysdk.features.LoadingAPI.ready();
-                            //         console.log(
-                            //             "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
-                            //         );
-                            //     } catch (e) {
-                            //         console.warn(
-                            //             "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
-                            //             e,
-                            //         );
-                            //     }
-                            // }
                         })
                         .catch((err) => {
                             console.warn(
@@ -727,11 +745,13 @@
                                 console.log(
                                     "[Yandex Ads]: Полноэкранный баннер открыт",
                                 );
+                                isPlatformPaused = true; // Фиксируем платформенную паузу на время показа рекламы
                             },
                             onClose: (wasShown) => {
                                 console.log(
                                     "[Yandex Ads]: Полноэкранный баннер закрыт",
                                 );
+                                isPlatformPaused = false; // Освобождаем паузу
                                 sfx.muted = wasMuted;
                                 if (gameState === STATES.PAUSED) {
                                     gameState =
@@ -747,6 +767,7 @@
                                     "[Yandex Ads]: Ошибка показа баннера",
                                     error,
                                 );
+                                isPlatformPaused = false; // Освобождаем паузу при ошибке
                                 sfx.muted = wasMuted;
                                 if (gameState === STATES.PAUSED) {
                                     gameState =
@@ -786,6 +807,7 @@
                         callbacks: {
                             onOpen: () => {
                                 console.log("[Rewarded Ad]: Видео открыто");
+                                isPlatformPaused = true; // Фиксируем платформенную паузу
                             },
                             onRewarded: () => {
                                 console.log("[Rewarded Ad]: Награда начислена");
@@ -793,6 +815,7 @@
                             },
                             onClose: () => {
                                 console.log("[Rewarded Ad]: Видео закрыто");
+                                isPlatformPaused = false; // Освобождаем паузу
                                 sfx.muted = wasMuted;
                                 if (gameState === STATES.PAUSED) {
                                     gameState =
@@ -807,6 +830,7 @@
                                     "[Rewarded Ad]: Ошибка видео",
                                     error,
                                 );
+                                isPlatformPaused = false; // Освобождаем паузу при ошибке
                                 sfx.muted = wasMuted;
                                 if (gameState === STATES.PAUSED) {
                                     gameState =
@@ -1020,6 +1044,11 @@
                     .catch((error) => {
                         console.log("[Music]: Автозапуск заблокирован");
                     });
+            }
+
+            // Заглушка для мультиязычности (применяется русский для игры)
+            function applyLanguage(lang) {
+                console.log("[Localization]: Язык системы зафиксирован: ru");
             }
 
             function pauseMusic() {
@@ -1407,23 +1436,9 @@
                                 "none";
                             showMenu();
 
-                            if (
-                                ysdkInstance &&
-                                ysdkInstance.features &&
-                                ysdkInstance.features.LoadingAPI
-                            ) {
-                                try {
-                                    ysdkInstance.features.LoadingAPI.ready();
-                                    console.log(
-                                        "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
-                                    );
-                                } catch (e) {
-                                    console.warn(
-                                        "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
-                                        e,
-                                    );
-                                }
-                            }
+                            // Сигнализируем синхронизатору готовности, что прелоадер завершил загрузку
+                            isGameReady = true;
+                            checkAndCallSDKReady();
                         }, 500);
                     }
                 }, 30);
@@ -5193,41 +5208,28 @@
             let isTabHidden = false;
 
             window.addEventListener("blur", () => {
-                // СТАВИМ ИГРУ НА ПАУЗУ при потере фокуса
-                if (
-                    [
-                        STATES.PLAYING,
-                        STATES.PORTAL_OPEN,
-                        STATES.BOSS_SPAWN,
-                        STATES.BOSS_FIGHT,
-                    ].includes(gameState)
-                ) {
-                    previousState = gameState;
-                    gameState = STATES.PAUSED;
-                    pauseMusic();
-                    if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                        sfx.ctx.suspend();
-                    }
-                    updatePauseButtonVisibility();
+                // ТОЛЬКО приостанавливаем аудио, НЕ ставим игру на паузу при потере фокуса окна (чтобы не дублировать API Яндекса)
+                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                    sfx.ctx.suspend();
+                }
+                if (bgMusic && isMusicPlaying) {
+                    bgMusic.pause();
                 }
             });
 
             window.addEventListener("focus", () => {
                 if (!isTabHidden) {
-                    // ВОЗОБНОВЛЯЕМ ИГРУ при получении фокуса
-                    if (
-                        gameState === STATES.PAUSED &&
-                        previousState !== STATES.PAUSED
-                    ) {
-                        if (!sfx.muted) {
-                            resumeMusic();
-                        }
-                        gameState = previousState;
-                        lastTime = performance.now();
-                        if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                            sfx.ctx.resume();
-                        }
-                        updatePauseButtonVisibility();
+                    // Если платформой или рекламой наложена пауза - блокируем автозапуск звуков!
+                    if (isPlatformPaused) return;
+
+                    // ТОЛЬКО возобновляем аудио
+                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                        sfx.ctx.resume();
+                    }
+                    if (bgMusic && isMusicPlaying && bgMusic.paused) {
+                        bgMusic.play().catch(() => {});
+                        bgMusic.volume = TARGET_VOLUME;
+                        currentVolume = TARGET_VOLUME;
                     }
                 }
             });
@@ -5243,6 +5245,9 @@
 
             document.addEventListener("resume", () => {
                 if (!isTabHidden) {
+                    // Если платформой или рекламой наложена пауза - блокируем автозапуск звуков!
+                    if (isPlatformPaused) return;
+
                     if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
                         sfx.ctx.resume();
                     }
@@ -5266,7 +5271,8 @@
 
             document.addEventListener("visibilitychange", () => {
                 if (document.hidden) {
-                    resetControls();
+                    isTabHidden = true;
+                    // СТАВИМ ИГРУ НА ПАУЗУ только если вкладка скрыта
                     if (
                         [
                             STATES.PLAYING,
@@ -5278,21 +5284,37 @@
                         previousState = gameState;
                         gameState = STATES.PAUSED;
                         pauseMusic();
-                    }
-                    if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                        sfx.ctx.suspend();
+                        if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                            sfx.ctx.suspend();
+                        }
+                        updatePauseButtonVisibility();
                     }
                 } else {
-                    resetControls();
+                    isTabHidden = false;
+
+                    // КРИТИЧЕСКИ: Если игра на системной паузе от платформы или рекламы -
+                    // мы НЕ должны возобновлять геймплей автоматически при фокусировке вкладки!
+                    if (isPlatformPaused) {
+                        console.log(
+                            "[SDK]: Пропускаем авто-снятие паузы, так как активна платформенная пауза.",
+                        );
+                        return;
+                    }
+
+                    // ВОЗОБНОВЛЯЕМ ИГРУ только если вкладка показана
                     if (
                         gameState === STATES.PAUSED &&
                         previousState !== STATES.PAUSED
                     ) {
+                        if (!sfx.muted) {
+                            resumeMusic();
+                        }
                         gameState = previousState;
-                        resumeMusic();
-                    }
-                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                        sfx.ctx.resume();
+                        lastTime = performance.now();
+                        if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                            sfx.ctx.resume();
+                        }
+                        updatePauseButtonVisibility();
                     }
                 }
             });
