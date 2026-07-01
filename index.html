@@ -560,6 +560,40 @@
                         .then((ysdk) => {
                             console.log("[Yandex SDK]: Инициализация успешна");
                             ysdkInstance = ysdk;
+                            try {
+                                if (ysdk.environment && ysdk.environment.i18n) {
+                                    const lang = ysdk.environment.i18n.lang;
+                                    console.log(
+                                        "[I18N] Язык пользователя:",
+                                        lang,
+                                    );
+
+                                    // Просто сохраняем в глобальную переменную для отладки
+                                    window.userLanguage = lang;
+
+                                    // Если язык не русский, всё равно используем русский
+                                    // (у нас только один язык)
+                                    const supportedLanguages = ["ru"];
+                                    const currentLang =
+                                        supportedLanguages.includes(lang)
+                                            ? lang
+                                            : "ru";
+
+                                    // Применяем язык (всегда русский)
+                                    applyLanguage(currentLang);
+                                } else {
+                                    console.warn(
+                                        "[I18N] SDK не предоставил информацию о языке",
+                                    );
+                                    applyLanguage("ru"); // Резерв
+                                }
+                            } catch (e) {
+                                console.warn(
+                                    "[I18N] Ошибка получения языка:",
+                                    e,
+                                );
+                                applyLanguage("ru");
+                            }
 
                             if (ysdk.features && ysdk.features.GameplayAPI) {
                                 ysdk.features.GameplayAPI.onPause(() => {
@@ -980,12 +1014,20 @@
             }
 
             function resumeMusic() {
-                if (!bgMusic || isMusicPlaying) return;
+                if (!bgMusic) return;
 
+                // Если музыка уже играет - ничего не делаем
+                if (isMusicPlaying && !bgMusic.paused) {
+                    return;
+                }
+
+                // Если звук отключен - не включаем музыку
                 if (sfx.muted) {
                     console.log("[Music]: Музыка отключена пользователем");
                     return;
                 }
+
+                // Если музыка на паузе - возобновляем
                 if (bgMusic.paused) {
                     bgMusic.volume = 0;
                     currentVolume = 0;
@@ -1066,6 +1108,38 @@
                 }, 16);
             }
 
+            function ensureMusicState() {
+                // Проверяем, должна ли играть музыка
+                const shouldPlay =
+                    !sfx.muted &&
+                    gameState !== STATES.MENU &&
+                    gameState !== STATES.GAMEOVER &&
+                    gameState !== STATES.LOADING;
+
+                if (shouldPlay && !isMusicPlaying) {
+                    // Музыка должна играть, но не играет - запускаем
+                    if (bgMusic.paused) {
+                        bgMusic.volume = 0;
+                        currentVolume = 0;
+                        bgMusic
+                            .play()
+                            .then(() => {
+                                isMusicPlaying = true;
+                                fadeInMusic();
+                            })
+                            .catch(() => {});
+                    } else {
+                        startMusic();
+                    }
+                } else if (!shouldPlay && isMusicPlaying && !bgMusic.paused) {
+                    // Музыка не должна играть, но играет - останавливаем
+                    fadeOutMusic(() => {
+                        bgMusic.pause();
+                        isMusicPlaying = false;
+                    });
+                }
+            }
+
             document
                 .getElementById("audio-toggle")
                 .addEventListener("click", (e) => {
@@ -1074,18 +1148,27 @@
                     sfx.muted = !sfx.muted;
 
                     if (sfx.muted) {
+                        // Звук выключен - останавливаем музыку
                         if (bgMusic) {
-                            bgMusic.volume = 0;
-                            if (isMusicPlaying) {
+                            fadeOutMusic(() => {
                                 bgMusic.pause();
-                            }
+                                isMusicPlaying = false;
+                            });
                         }
                     } else {
+                        // Звук включен - возобновляем музыку
                         if (bgMusic) {
                             if (bgMusic.paused && isMusicPlaying) {
-                                bgMusic.play().catch(() => {});
-                            }
-                            if (isMusicPlaying) {
+                                bgMusic.volume = 0;
+                                currentVolume = 0;
+                                bgMusic
+                                    .play()
+                                    .then(() => {
+                                        isMusicPlaying = true;
+                                        fadeInMusic();
+                                    })
+                                    .catch(() => {});
+                            } else if (isMusicPlaying) {
                                 bgMusic.volume = TARGET_VOLUME;
                                 currentVolume = TARGET_VOLUME;
                             }
@@ -1550,7 +1633,16 @@
                 // 🛑 ГЕЙМПЛЕЙ ОСТАНОВЛЕН: Уведомляем Yandex Games Gameplay API
                 triggerYandexGameplayStop();
 
-                stopMusic();
+                // Останавливаем музыку с fade-out
+                if (bgMusic && isMusicPlaying) {
+                    fadeOutMusic(() => {
+                        bgMusic.pause();
+                        bgMusic.currentTime = 0;
+                        isMusicPlaying = false;
+                    });
+                } else {
+                    stopMusic();
+                }
 
                 document.getElementById("menu-screen").style.display = "flex";
                 document.getElementById("pause-menu-btn").style.display =
@@ -3398,6 +3490,8 @@
             const effectPool = new FastPool(StaticEffect, 400);
             const floatingTextPool = new FastPool(FloatingText, 300);
             const worldPortal = new Portal();
+            let reviveAnimationActive = false;
+            let reviveAnimationProgress = 0;
             let activeLightnings = [];
 
             function createSpawnWarning(x, y, variant, duration = 90) {
@@ -4764,9 +4858,31 @@
                 if (gameState === STATES.PAUSED) {
                     document.getElementById("pause-menu-btn").style.display =
                         "block";
+                    // Если музыка играет - ставим на паузу
+                    if (bgMusic && isMusicPlaying && !bgMusic.paused) {
+                        fadeOutMusic(() => {
+                            bgMusic.pause();
+                        });
+                    }
                 } else {
                     document.getElementById("pause-menu-btn").style.display =
                         "none";
+                    // Если музыка на паузе и игра не на паузе - возобновляем
+                    if (
+                        bgMusic &&
+                        bgMusic.paused &&
+                        isMusicPlaying &&
+                        !sfx.muted
+                    ) {
+                        bgMusic.volume = 0;
+                        currentVolume = 0;
+                        bgMusic
+                            .play()
+                            .then(() => {
+                                fadeInMusic();
+                            })
+                            .catch(() => {});
+                    }
                 }
 
                 if (
@@ -4840,6 +4956,8 @@
                     bossSpawnTimer--;
                     if (bossSpawnTimer <= 0) gameState = STATES.BOSS_FIGHT;
                 }
+
+                ensureMusicState();
             }
 
             function gameLoop(currentTime) {
@@ -4871,6 +4989,42 @@
 
                 ctx.fillStyle = getBackgroundColor();
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+                if (reviveAnimationActive) {
+                    // Эффект пульсации экрана
+                    const scale =
+                        1 + Math.sin(reviveAnimationProgress * 0.2) * 0.03;
+
+                    ctx.save();
+                    ctx.translate(canvas.width / 2, canvas.height / 2);
+                    ctx.scale(scale, scale);
+                    ctx.translate(-canvas.width / 2, -canvas.height / 2);
+
+                    // Затемнение по краям (виньетка)
+                    const vignette =
+                        1 - Math.min(1, reviveAnimationProgress / 30) * 0.3;
+                    const gradient = ctx.createRadialGradient(
+                        canvas.width / 2,
+                        canvas.height / 2,
+                        50,
+                        canvas.width / 2,
+                        canvas.height / 2,
+                        canvas.width * 0.8,
+                    );
+                    gradient.addColorStop(
+                        0,
+                        `rgba(255, 255, 255, ${0.05 * (1 - vignette)})`,
+                    );
+                    gradient.addColorStop(
+                        1,
+                        `rgba(0, 0, 0, ${0.3 * (1 - vignette)})`,
+                    );
+                    ctx.fillStyle = gradient;
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.restore();
+
+                    reviveAnimationProgress++;
+                }
 
                 if (
                     [
@@ -5222,6 +5376,7 @@
                     showYandexRewarded(
                         () => {
                             adReviveUsedInCurrentRun = true;
+
                             player.hp = 100;
 
                             effectPool
@@ -5244,6 +5399,7 @@
 
                             // 🚀 ГЕЙМПЛЕЙ ВОЗОБНОВЛЕН: Снова отправляем уведомление о старте геймплея
                             triggerYandexGameplayStart();
+                            startReviveExplosionAnimation();
                         },
                         () => {
                             toasts.push({
@@ -5544,6 +5700,104 @@
                         lastTime = performance.now();
                     }
                 }
+            }
+
+            function startReviveExplosionAnimation() {
+                // Сначала показываем эффект взрыва
+                reviveAnimationActive = true;
+                reviveAnimationProgress = 0;
+
+                // Сохраняем текущее состояние игры
+                const prevState = gameState;
+                gameState = STATES.PAUSED;
+
+                // Создаём множество взрывов по всей арене
+                const explosionCount = 12;
+                for (let i = 0; i < explosionCount; i++) {
+                    setTimeout(() => {
+                        if (!reviveAnimationActive) return;
+                        const angle = Math.random() * Math.PI * 2;
+                        const dist = 100 + Math.random() * 350;
+                        const x = player.x + Math.cos(angle) * dist;
+                        const y = player.y + Math.sin(angle) * dist;
+
+                        // Создаём большой взрыв
+                        effectPool
+                            .get()
+                            ?.spawn(x, y, 80 + Math.random() * 60, 20, "blast");
+                        sfx.playExplode();
+
+                        // Дополнительные искры
+                        for (let j = 0; j < 5; j++) {
+                            const sx = x + (Math.random() - 0.5) * 60;
+                            const sy = y + (Math.random() - 0.5) * 60;
+                            effectPool
+                                .get()
+                                ?.spawn(
+                                    sx,
+                                    sy,
+                                    20 + Math.random() * 30,
+                                    10,
+                                    "enemy_exp",
+                                );
+                        }
+                    }, i * 80);
+                }
+
+                // Через 1.5 секунды после начала анимации - уничтожаем всех врагов
+                setTimeout(() => {
+                    if (!reviveAnimationActive) return;
+
+                    // Уничтожаем всех врагов с эффектами
+                    for (let i = 0; i < enemyPool.activeCount; i++) {
+                        const enemy = enemyPool.objects[i];
+                        if (enemy.active) {
+                            // Создаём взрыв на месте каждого врага
+                            effectPool
+                                .get()
+                                ?.spawn(enemy.x, enemy.y, 50, 15, "blast");
+                            effectPool
+                                .get()
+                                ?.spawn(enemy.x, enemy.y, 30, 10, "enemy_exp");
+                            // Уничтожаем врага
+                            enemyPool.release(enemy);
+                        }
+                    }
+
+                    // Очищаем все вражеские пули
+                    enemyBulletPool.clear();
+
+                    // Завершаем анимацию
+                    reviveAnimationActive = false;
+
+                    // Возрождаем игрока
+                    player.hp = 100;
+
+                    // Большой финальный взрыв
+                    effectPool
+                        .get()
+                        ?.spawn(player.x, player.y, 350, 45, "pulse_wave");
+                    sfx.playLevelUp();
+
+                    // Показываем текст возрождения
+                    floatingTextPool
+                        .get()
+                        ?.spawn(
+                            player.x,
+                            player.y - 50,
+                            "ЯДРО ВОССТАНОВЛЕНО!",
+                            "#00ffff",
+                        );
+
+                    document.getElementById("gameover-screen").style.display =
+                        "none";
+                    gameState = STATES.PLAYING;
+                    lastTime = performance.now();
+                    resumeMusic();
+
+                    // 🚀 ГЕЙМПЛЕЙ ВОЗОБНОВЛЕН
+                    triggerYandexGameplayStart();
+                }, 1500);
             }
 
             function updatePauseButtonVisibility() {
