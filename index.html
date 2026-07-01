@@ -619,6 +619,7 @@
                                     ) {
                                         sfx.ctx.suspend();
                                     }
+                                    updatePauseButtonVisibility(); // Обновляем кнопку паузы
                                 });
 
                                 ysdk.features.GameplayAPI.onResume(() => {
@@ -630,7 +631,10 @@
                                         previousState !== STATES.PAUSED
                                     ) {
                                         gameState = previousState;
-                                        resumeMusic();
+                                        if (!sfx.muted) {
+                                            resumeMusic();
+                                        }
+                                        lastTime = performance.now(); // ✅ КРИТИЧЕСКИ ВАЖНО
                                     }
                                     if (
                                         sfx &&
@@ -639,6 +643,7 @@
                                     ) {
                                         sfx.ctx.resume();
                                     }
+                                    updatePauseButtonVisibility(); // Обновляем кнопку паузы
                                 });
                             }
 
@@ -671,6 +676,19 @@
                                             err,
                                         );
                                     });
+                            }
+                            if (ysdk.features && ysdk.features.LoadingAPI) {
+                                try {
+                                    ysdk.features.LoadingAPI.ready();
+                                    console.log(
+                                        "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
+                                    );
+                                } catch (e) {
+                                    console.warn(
+                                        "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
+                                        e,
+                                    );
+                                }
                             }
                         })
                         .catch((err) => {
@@ -1387,25 +1405,6 @@
                             document.getElementById("preloader").style.display =
                                 "none";
                             showMenu();
-
-                            // 🚀 Уведомляем Yandex Games, что ресурсы игры загружены полностью (Loading API)
-                            if (
-                                ysdkInstance &&
-                                ysdkInstance.features &&
-                                ysdkInstance.features.LoadingAPI
-                            ) {
-                                try {
-                                    ysdkInstance.features.LoadingAPI.ready();
-                                    console.log(
-                                        "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
-                                    );
-                                } catch (e) {
-                                    console.warn(
-                                        "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
-                                        e,
-                                    );
-                                }
-                            }
                         }, 500);
                     }
                 }, 30);
@@ -5172,46 +5171,6 @@
 
             let isTabHidden = false;
 
-            document.addEventListener("visibilitychange", () => {
-                if (document.hidden) {
-                    isTabHidden = true;
-                    // СТАВИМ ИГРУ НА ПАУЗУ
-                    if (
-                        [
-                            STATES.PLAYING,
-                            STATES.PORTAL_OPEN,
-                            STATES.BOSS_SPAWN,
-                            STATES.BOSS_FIGHT,
-                        ].includes(gameState)
-                    ) {
-                        previousState = gameState;
-                        gameState = STATES.PAUSED;
-                        pauseMusic();
-                        if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                            sfx.ctx.suspend();
-                        }
-                        updatePauseButtonVisibility();
-                    }
-                } else {
-                    isTabHidden = false;
-                    // ВОЗОБНОВЛЯЕМ ИГРУ
-                    if (
-                        gameState === STATES.PAUSED &&
-                        previousState !== STATES.PAUSED
-                    ) {
-                        if (!sfx.muted) {
-                            resumeMusic();
-                        }
-                        gameState = previousState;
-                        lastTime = performance.now();
-                        if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                            sfx.ctx.resume();
-                        }
-                        updatePauseButtonVisibility();
-                    }
-                }
-            });
-
             window.addEventListener("blur", () => {
                 if (sfx && sfx.ctx && sfx.ctx.state === "running") {
                     sfx.ctx.suspend();
@@ -5265,39 +5224,6 @@
                 joystick.vx = 0;
                 joystick.vy = 0;
             }
-
-            window.addEventListener("blur", () => {
-                resetControls();
-                if (
-                    [
-                        STATES.PLAYING,
-                        STATES.PORTAL_OPEN,
-                        STATES.BOSS_SPAWN,
-                        STATES.BOSS_FIGHT,
-                    ].includes(gameState)
-                ) {
-                    previousState = gameState;
-                    gameState = STATES.PAUSED;
-                    pauseMusic();
-                }
-                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                    sfx.ctx.suspend();
-                }
-            });
-
-            window.addEventListener("focus", () => {
-                resetControls();
-                if (
-                    gameState === STATES.PAUSED &&
-                    previousState !== STATES.PAUSED
-                ) {
-                    gameState = previousState;
-                    resumeMusic();
-                }
-                if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                    sfx.ctx.resume();
-                }
-            });
 
             document.addEventListener("visibilitychange", () => {
                 if (document.hidden) {
