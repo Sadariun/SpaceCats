@@ -7,7 +7,6 @@
             content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover,  height=device-height"
         />
         <title>Система // Выживание</title>
-        <link href="./css/style.css" rel="stylesheet" />
         <script src="https://yandex.ru/games/sdk/v2"></script>
 
         <style>
@@ -20,14 +19,6 @@
                 -webkit-touch-callout: none;
                 margin: 0;
                 padding: 0;
-            }
-            #bg-music {
-                display: none !important;
-                position: absolute !important;
-                width: 0 !important;
-                height: 0 !important;
-                opacity: 0 !important;
-                pointer-events: none !important;
             }
             body,
             html {
@@ -402,10 +393,6 @@
 
         <canvas id="gameCanvas"></canvas>
 
-        <audio id="bg-music" loop preload="auto">
-            <source src="./music/bgmusic.mp3" type="audio/mpeg" />
-        </audio>
-
         <button
             id="audio-toggle"
             style="
@@ -498,46 +485,15 @@
         </div>
 
         <script>
-            // Global SDK handlers & Safeties
             let ysdkInstance = null;
             let adReviveUsedInCurrentRun = false;
-            let isPlatformPaused = false; // Отслеживает, поставлена ли игра на паузу через SDK или рекламу
-            let isGameReady = false; // Отслеживает окончание работы прелоадера игры
+            let isPlatformPaused = false;
+            let isGameReady = false;
 
-            // Блокировка вызова контекстного меню, выделения и перетаскивания элементов страницы (Требование 1.6.2.7)
-            document.addEventListener("contextmenu", (e) => {
-                e.preventDefault();
-            });
-            document.addEventListener("selectstart", (e) => {
-                e.preventDefault();
-            });
-            document.addEventListener("dragstart", (e) => {
-                e.preventDefault();
-            });
+            document.addEventListener("contextmenu", (e) => e.preventDefault());
+            document.addEventListener("selectstart", (e) => e.preventDefault());
+            document.addEventListener("dragstart", (e) => e.preventDefault());
 
-            // Безопасный триггер LoadingAPI.ready() при совпадении двух событий (игра загрузилась + SDK готов)
-            function checkAndCallSDKReady() {
-                if (isGameReady && ysdkInstance) {
-                    if (
-                        ysdkInstance.features &&
-                        ysdkInstance.features.LoadingAPI
-                    ) {
-                        try {
-                            ysdkInstance.features.LoadingAPI.ready();
-                            console.log(
-                                "[Yandex SDK]: LoadingAPI.ready() успешно выполнен при синхронизации событий.",
-                            );
-                        } catch (e) {
-                            console.warn(
-                                "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
-                                e,
-                            );
-                        }
-                    }
-                }
-            }
-
-            // Safe helper wrappers to guarantee GameplayAPI calls do not crash on local environments
             function triggerYandexGameplayStart() {
                 if (
                     ysdkInstance &&
@@ -547,7 +503,7 @@
                     try {
                         ysdkInstance.features.GameplayAPI.start();
                         console.log(
-                            "[Yandex SDK]: GameplayAPI.start() вызван успешно.",
+                            "[Yandex SDK]: GameplayAPI.start() успешно отправлен.",
                         );
                     } catch (e) {
                         console.warn(
@@ -567,7 +523,7 @@
                     try {
                         ysdkInstance.features.GameplayAPI.stop();
                         console.log(
-                            "[Yandex SDK]: GameplayAPI.stop() вызван успешно.",
+                            "[Yandex SDK]: GameplayAPI.stop() успешно отправлен.",
                         );
                     } catch (e) {
                         console.warn(
@@ -578,289 +534,70 @@
                 }
             }
 
-            function initYandexSDK() {
-                if (typeof YaGames !== "undefined") {
-                    YaGames.init()
-                        .then((ysdk) => {
-                            console.log("[Yandex SDK]: Инициализация успешна");
-                            ysdkInstance = ysdk;
-
-                            // Сигнализируем о готовности SDK для синхронизатора ready()
-                            checkAndCallSDKReady();
-
-                            try {
-                                if (ysdk.environment && ysdk.environment.i18n) {
-                                    const lang = ysdk.environment.i18n.lang;
-                                    console.log(
-                                        "[I18N] Язык пользователя:",
-                                        lang,
-                                    );
-
-                                    // Просто сохраняем в глобальную переменную для отладки
-                                    window.userLanguage = lang;
-
-                                    // Если язык не русский, всё равно используем русский
-                                    // (у нас только один язык)
-                                    const supportedLanguages = ["ru"];
-                                    const currentLang =
-                                        supportedLanguages.includes(lang)
-                                            ? lang
-                                            : "ru";
-
-                                    // Применяем язык (всегда русский)
-                                    applyLanguage(currentLang);
-                                } else {
-                                    console.warn(
-                                        "[I18N] SDK не предоставил информацию о языке",
-                                    );
-                                    applyLanguage("ru"); // Резерв
-                                }
-                            } catch (e) {
-                                console.warn(
-                                    "[I18N] Ошибка получения языка:",
-                                    e,
-                                );
-                                applyLanguage("ru");
-                            }
-
-                            if (ysdk.features && ysdk.features.GameplayAPI) {
-                                ysdk.features.GameplayAPI.onPause(() => {
-                                    console.log(
-                                        "[SDK]: Платформа приостановила игру",
-                                    );
-                                    isPlatformPaused = true; // Фиксируем платформенную паузу
-                                    if (
-                                        [
-                                            STATES.PLAYING,
-                                            STATES.PORTAL_OPEN,
-                                            STATES.BOSS_SPAWN,
-                                            STATES.BOSS_FIGHT,
-                                        ].includes(gameState)
-                                    ) {
-                                        previousState = gameState;
-                                        gameState = STATES.PAUSED;
-                                        pauseMusic();
-                                    }
-                                    if (
-                                        sfx &&
-                                        sfx.ctx &&
-                                        sfx.ctx.state === "running"
-                                    ) {
-                                        sfx.ctx.suspend();
-                                    }
-                                    updatePauseButtonVisibility(); // Обновляем кнопку паузы
-                                });
-
-                                ysdk.features.GameplayAPI.onResume(() => {
-                                    console.log(
-                                        "[SDK]: Платформа возобновила игру",
-                                    );
-                                    isPlatformPaused = false; // Снимаем флаг платформенной паузы
-
-                                    // Если игра на паузе - просто возвращаемся в предыдущее состояние
-                                    if (gameState === STATES.PAUSED) {
-                                        // Всегда возобновляем, если игра была на паузе
-                                        if (!sfx.muted) {
-                                            resumeMusic();
-                                        }
-                                        gameState = previousState;
-                                        lastTime = performance.now();
-
-                                        if (
-                                            sfx &&
-                                            sfx.ctx &&
-                                            sfx.ctx.state === "suspended"
-                                        ) {
-                                            sfx.ctx.resume();
-                                        }
-                                        updatePauseButtonVisibility();
-                                    }
-                                });
-                            }
-
-                            if (ysdk.screen && ysdk.screen.fullscreen) {
-                                ysdk.screen.fullscreen
-                                    .request()
-                                    .then(() => {
-                                        console.log(
-                                            "[Yandex SDK]: Полноэкранный режим включён",
-                                        );
-                                    })
-                                    .catch((err) => {
-                                        console.log(
-                                            "[Yandex SDK]: Ошибка полноэкранного режима:",
-                                            err,
-                                        );
-                                    });
-                            }
-
-                            if (ysdk.features && ysdk.features.DeviceMotion) {
-                                ysdk.features.DeviceMotion.requestPermission()
-                                    .then(() => {
-                                        console.log(
-                                            "[Yandex SDK]: Разрешение на блокировку жестов получено",
-                                        );
-                                    })
-                                    .catch((err) => {
-                                        console.log(
-                                            "[Yandex SDK]: Ошибка запроса разрешения:",
-                                            err,
-                                        );
-                                    });
-                            }
-                        })
-                        .catch((err) => {
-                            console.warn(
-                                "[Yandex SDK]: Ошибка инициализации SDK",
-                                err,
-                            );
-                        });
-                } else {
-                    console.log(
-                        "[Yandex SDK]: SDK отсутствует (запуск в локальном окружении)",
-                    );
-                }
-            }
-
-            function showYandexInterstitial(onCloseCallback) {
-                if (ysdkInstance) {
-                    const wasMuted = sfx.muted;
-                    const prevGameState = gameState;
-
-                    sfx.muted = true;
-                    if (
-                        [
-                            STATES.PLAYING,
-                            STATES.PORTAL_OPEN,
-                            STATES.BOSS_FIGHT,
-                        ].includes(gameState)
-                    ) {
-                        previousState = gameState;
-                        gameState = STATES.PAUSED;
-                    }
-
-                    ysdkInstance.adv.showFullscreenAdv({
-                        callbacks: {
-                            onOpen: () => {
-                                console.log(
-                                    "[Yandex Ads]: Полноэкранный баннер открыт",
-                                );
-                                isPlatformPaused = true; // Фиксируем платформенную паузу на время показа рекламы
-                            },
-                            onClose: (wasShown) => {
-                                console.log(
-                                    "[Yandex Ads]: Полноэкранный баннер закрыт",
-                                );
-                                isPlatformPaused = false; // Освобождаем паузу
-                                sfx.muted = wasMuted;
-                                if (gameState === STATES.PAUSED) {
-                                    gameState =
-                                        prevGameState === STATES.PAUSED
-                                            ? STATES.PAUSED
-                                            : previousState;
-                                    lastTime = performance.now();
-                                }
-                                if (onCloseCallback) onCloseCallback();
-                            },
-                            onError: (error) => {
-                                console.warn(
-                                    "[Yandex Ads]: Ошибка показа баннера",
-                                    error,
-                                );
-                                isPlatformPaused = false; // Освобождаем паузу при ошибке
-                                sfx.muted = wasMuted;
-                                if (gameState === STATES.PAUSED) {
-                                    gameState =
-                                        prevGameState === STATES.PAUSED
-                                            ? STATES.PAUSED
-                                            : previousState;
-                                    lastTime = performance.now();
-                                }
-                                if (onCloseCallback) onCloseCallback();
-                            },
-                        },
-                    });
-                } else {
-                    if (onCloseCallback) onCloseCallback();
-                }
-            }
-
-            function showYandexRewarded(onRewardedCallback, onErrorCallback) {
-                if (ysdkInstance) {
-                    const wasMuted = sfx.muted;
-                    sfx.muted = true;
-
-                    const prevGameState = gameState;
-                    if (
-                        [
-                            STATES.PLAYING,
-                            STATES.PORTAL_OPEN,
-                            STATES.BOSS_FIGHT,
-                            STATES.GAMEOVER,
-                        ].includes(gameState)
-                    ) {
-                        previousState = gameState;
-                        gameState = STATES.PAUSED;
-                    }
-
-                    ysdkInstance.adv.showRewardedVideo({
-                        callbacks: {
-                            onOpen: () => {
-                                console.log("[Rewarded Ad]: Видео открыто");
-                                isPlatformPaused = true; // Фиксируем платформенную паузу
-                            },
-                            onRewarded: () => {
-                                console.log("[Rewarded Ad]: Награда начислена");
-                                if (onRewardedCallback) onRewardedCallback();
-                            },
-                            onClose: () => {
-                                console.log("[Rewarded Ad]: Видео закрыто");
-                                isPlatformPaused = false; // Освобождаем паузу
-                                sfx.muted = wasMuted;
-                                if (gameState === STATES.PAUSED) {
-                                    gameState =
-                                        prevGameState === STATES.PAUSED
-                                            ? STATES.PAUSED
-                                            : previousState;
-                                    lastTime = performance.now();
-                                }
-                            },
-                            onError: (error) => {
-                                console.warn(
-                                    "[Rewarded Ad]: Ошибка видео",
-                                    error,
-                                );
-                                isPlatformPaused = false; // Освобождаем паузу при ошибке
-                                sfx.muted = wasMuted;
-                                if (gameState === STATES.PAUSED) {
-                                    gameState =
-                                        prevGameState === STATES.PAUSED
-                                            ? STATES.PAUSED
-                                            : previousState;
-                                    lastTime = performance.now();
-                                }
-                                if (onErrorCallback) onErrorCallback();
-                            },
-                        },
-                    });
-                } else {
-                    console.log(
-                        "[Dev mode]: Эмуляция просмотра Rewarded рекламы",
-                    );
-                    if (onRewardedCallback) onRewardedCallback();
-                }
-            }
-
             class AudioEngine {
                 constructor() {
                     this.ctx = null;
                     this.muted = false;
+                    this.musicBuffer = null;
+                    this.musicSource = null;
+                    this.musicGain = null;
+                    this.musicLoading = false;
                 }
                 init() {
                     if (this.ctx) return;
                     this.ctx = new (
                         window.AudioContext || window.webkitAudioContext
                     )();
+                }
+                loadMusic() {
+                    if (this.musicBuffer || this.musicLoading) return;
+                    this.musicLoading = true;
+                    this.init();
+                    fetch("./music/bgmusic.mp3")
+                        .then((response) => response.arrayBuffer())
+                        .then((data) => this.ctx.decodeAudioData(data))
+                        .then((buffer) => {
+                            this.musicBuffer = buffer;
+                            this.musicLoading = false;
+                            console.log(
+                                "[AudioEngine]: Фоновая музыка успешно загружена и декодирована.",
+                            );
+                            if (isMusicPlaying) {
+                                this.playMusic();
+                            }
+                        })
+                        .catch((err) => {
+                            console.warn(
+                                "[AudioEngine]: Ошибка загрузки или декодирования музыки",
+                                err,
+                            );
+                            this.musicLoading = false;
+                        });
+                }
+                playMusic() {
+                    if (!this.ctx || !this.musicBuffer) return;
+                    this.stopMusic();
+
+                    this.musicSource = this.ctx.createBufferSource();
+                    this.musicSource.buffer = this.musicBuffer;
+                    this.musicSource.loop = true;
+
+                    this.musicGain = this.ctx.createGain();
+                    this.musicGain.gain.setValueAtTime(0, this.ctx.currentTime);
+
+                    this.musicSource.connect(this.musicGain);
+                    this.musicGain.connect(this.ctx.destination);
+
+                    this.musicSource.start(0);
+                }
+                stopMusic() {
+                    if (this.musicSource) {
+                        try {
+                            this.musicSource.stop(0);
+                        } catch (e) {}
+                        this.musicSource = null;
+                    }
+                    this.musicGain = null;
                 }
                 playShoot() {
                     if (this.muted || !this.ctx) return;
@@ -1011,179 +748,122 @@
             }
             const sfx = new AudioEngine();
 
-            const bgMusic = document.getElementById("bg-music");
-            let isMusicPlaying = false;
-            let isFading = false;
-            let fadeInterval = null;
-            let currentVolume = 0;
+            const initAudioOnFirstClick = () => {
+                sfx.init();
+                sfx.loadMusic();
+                window.removeEventListener("click", initAudioOnFirstClick);
+                window.removeEventListener("touchstart", initAudioOnFirstClick);
+            };
+            window.addEventListener("click", initAudioOnFirstClick);
+            window.addEventListener("touchstart", initAudioOnFirstClick);
 
-            const FADE_SPEED = 0.015;
+            let isMusicPlaying = false;
             const TARGET_VOLUME = 0.25;
 
             function startMusic() {
-                if (!bgMusic) return;
-                if (sfx.muted) {
-                    console.log("[Music]: Музыка отключена пользователем");
-                    return;
-                }
-                if (isMusicPlaying && !bgMusic.paused) return;
-
-                bgMusic.volume = 0;
-                currentVolume = 0;
-                bgMusic.loop = true;
-
-                bgMusic
-                    .play()
-                    .then(() => {
-                        isMusicPlaying = true;
-                        fadeInMusic();
-                        console.log(
-                            "[Music]: Фоновая музыка запущена с fade-in",
-                        );
-                    })
-                    .catch((error) => {
-                        console.log("[Music]: Автозапуск заблокирован");
-                    });
+                if (sfx.muted) return;
+                if (isTabHidden) return;
+                if (isPlatformPaused) return;
+                isMusicPlaying = true;
+                sfx.playMusic();
+                fadeInMusic();
             }
 
-            // Заглушка для мультиязычности (применяется русский для игры)
             function applyLanguage(lang) {
-                console.log("[Localization]: Язык системы зафиксирован: ru");
+                console.log("[Localization]: Русский язык активирован.");
             }
 
             function pauseMusic() {
-                if (!bgMusic || !isMusicPlaying) return;
+                isMusicPlaying = false;
                 fadeOutMusic(() => {
-                    bgMusic.pause();
-                    isMusicPlaying = false;
-                    console.log("[Music]: Фоновая музыка на паузе");
-                });
+                    sfx.stopMusic();
+                }, true); // Моментальная остановка
             }
 
             function resumeMusic() {
-                if (!bgMusic) return;
-
-                // Если музыка уже играет - ничего не делаем
-                if (isMusicPlaying && !bgMusic.paused) {
-                    return;
-                }
-
-                // Если звук отключен - не включаем музыку
-                if (sfx.muted) {
-                    console.log("[Music]: Музыка отключена пользователем");
-                    return;
-                }
-
-                // Если музыка на паузе - возобновляем
-                if (bgMusic.paused) {
-                    bgMusic.volume = 0;
-                    currentVolume = 0;
-                    bgMusic
-                        .play()
-                        .then(() => {
-                            isMusicPlaying = true;
-                            fadeInMusic();
-                            console.log(
-                                "[Music]: Фоновая музыка возобновлена с fade-in",
-                            );
-                        })
-                        .catch((error) => {
-                            console.log(
-                                "[Music]: Ошибка возобновления:",
-                                error,
-                            );
-                        });
-                }
+                if (sfx.muted) return;
+                if (isTabHidden) return;
+                if (isPlatformPaused) return;
+                isMusicPlaying = true;
+                sfx.playMusic();
+                fadeInMusic();
             }
 
             function stopMusic() {
-                if (!bgMusic) return;
-
+                isMusicPlaying = false;
                 fadeOutMusic(() => {
-                    bgMusic.pause();
-                    bgMusic.currentTime = 0;
-                    isMusicPlaying = false;
-                    console.log("[Music]: Фоновая музыка остановлена");
+                    sfx.stopMusic();
                 });
             }
 
             function fadeInMusic() {
-                if (fadeInterval) {
-                    clearInterval(fadeInterval);
-                    fadeInterval = null;
+                if (sfx.musicGain && sfx.ctx) {
+                    const currTime = sfx.ctx.currentTime;
+                    sfx.musicGain.gain.cancelScheduledValues(currTime);
+                    sfx.musicGain.gain.setValueAtTime(
+                        sfx.musicGain.gain.value,
+                        currTime,
+                    );
+                    sfx.musicGain.gain.linearRampToValueAtTime(
+                        TARGET_VOLUME,
+                        currTime + 1.5,
+                    );
                 }
-
-                isFading = true;
-                currentVolume = 0;
-                bgMusic.volume = 0;
-
-                fadeInterval = setInterval(() => {
-                    if (currentVolume < TARGET_VOLUME) {
-                        currentVolume = Math.min(
-                            currentVolume + FADE_SPEED,
-                            TARGET_VOLUME,
-                        );
-                        bgMusic.volume = currentVolume;
-                    } else {
-                        clearInterval(fadeInterval);
-                        fadeInterval = null;
-                        isFading = false;
-                    }
-                }, 16);
             }
 
-            function fadeOutMusic(callback) {
-                if (fadeInterval) {
-                    clearInterval(fadeInterval);
-                    fadeInterval = null;
-                }
-
-                isFading = true;
-                currentVolume = bgMusic.volume;
-
-                fadeInterval = setInterval(() => {
-                    if (currentVolume > 0) {
-                        currentVolume = Math.max(currentVolume - FADE_SPEED, 0);
-                        bgMusic.volume = currentVolume;
-                    } else {
-                        clearInterval(fadeInterval);
-                        fadeInterval = null;
-                        isFading = false;
-                        bgMusic.volume = 0;
-                        if (callback) callback();
+            function fadeOutMusic(callback, forceInstant = false) {
+                if (forceInstant) {
+                    if (sfx.musicGain && sfx.ctx) {
+                        sfx.musicGain.gain.cancelScheduledValues(
+                            sfx.ctx.currentTime,
+                        );
+                        sfx.musicGain.gain.setValueAtTime(
+                            0,
+                            sfx.ctx.currentTime,
+                        );
                     }
-                }, 16);
+                    if (callback) callback();
+                    return;
+                }
+                if (sfx.musicGain && sfx.ctx) {
+                    const currTime = sfx.ctx.currentTime;
+                    sfx.musicGain.gain.cancelScheduledValues(currTime);
+                    sfx.musicGain.gain.setValueAtTime(
+                        sfx.musicGain.gain.value,
+                        currTime,
+                    );
+                    sfx.musicGain.gain.linearRampToValueAtTime(
+                        0,
+                        currTime + 1.0,
+                    );
+                    setTimeout(() => {
+                        if (callback) callback();
+                    }, 1000);
+                } else {
+                    if (callback) callback();
+                }
             }
 
             function ensureMusicState() {
-                // Проверяем, должна ли играть музыка
                 const shouldPlay =
                     !sfx.muted &&
+                    !isTabHidden &&
+                    !isPlatformPaused &&
                     gameState !== STATES.MENU &&
                     gameState !== STATES.GAMEOVER &&
-                    gameState !== STATES.LOADING;
-
+                    gameState !== STATES.LOADING &&
+                    gameState !== STATES.PAUSED &&
+                    gameState !== STATES.UPGRADE;
                 if (shouldPlay && !isMusicPlaying) {
-                    // Музыка должна играть, но не играет - запускаем
-                    if (bgMusic.paused) {
-                        bgMusic.volume = 0;
-                        currentVolume = 0;
-                        bgMusic
-                            .play()
-                            .then(() => {
-                                isMusicPlaying = true;
-                                fadeInMusic();
-                            })
-                            .catch(() => {});
-                    } else {
-                        startMusic();
-                    }
-                } else if (!shouldPlay && isMusicPlaying && !bgMusic.paused) {
-                    // Музыка не должна играть, но играет - останавливаем
-                    fadeOutMusic(() => {
-                        bgMusic.pause();
-                        isMusicPlaying = false;
-                    });
+                    startMusic();
+                } else if (!shouldPlay && isMusicPlaying) {
+                    isMusicPlaying = false;
+                    fadeOutMusic(
+                        () => {
+                            sfx.stopMusic();
+                        },
+                        isTabHidden || isPlatformPaused || sfx.muted,
+                    );
                 }
             }
 
@@ -1195,31 +875,12 @@
                     sfx.muted = !sfx.muted;
 
                     if (sfx.muted) {
-                        // Звук выключен - останавливаем музыку
-                        if (bgMusic) {
-                            fadeOutMusic(() => {
-                                bgMusic.pause();
-                                isMusicPlaying = false;
-                            });
-                        }
+                        isMusicPlaying = false;
+                        fadeOutMusic(() => {
+                            sfx.stopMusic();
+                        }, true);
                     } else {
-                        // Звук включен - возобновляем музыку
-                        if (bgMusic) {
-                            if (bgMusic.paused && isMusicPlaying) {
-                                bgMusic.volume = 0;
-                                currentVolume = 0;
-                                bgMusic
-                                    .play()
-                                    .then(() => {
-                                        isMusicPlaying = true;
-                                        fadeInMusic();
-                                    })
-                                    .catch(() => {});
-                            } else if (isMusicPlaying) {
-                                bgMusic.volume = TARGET_VOLUME;
-                                currentVolume = TARGET_VOLUME;
-                            }
-                        }
+                        ensureMusicState();
                     }
 
                     document.getElementById("audio-toggle").innerText =
@@ -1249,6 +910,263 @@
             let previousState = STATES.PLAYING;
 
             const spawnWarnings = [];
+
+            const resumeCallback = () => {
+                resumeGame();
+                console.log("GAME RESUMED");
+            };
+
+            function checkAndCallSDKReady() {
+                if (isGameReady && ysdkInstance) {
+                    if (
+                        ysdkInstance.features &&
+                        ysdkInstance.features.LoadingAPI
+                    ) {
+                        try {
+                            ysdkInstance.features.LoadingAPI.ready();
+                            console.log(
+                                "[Yandex SDK]: LoadingAPI.ready() успешно выполнен.",
+                            );
+                        } catch (e) {
+                            console.warn(
+                                "[Yandex SDK]: Ошибка вызова LoadingAPI.ready()",
+                                e,
+                            );
+                        }
+                    }
+                }
+            }
+
+            function initYandexSDK() {
+                if (typeof YaGames !== "undefined") {
+                    YaGames.init()
+                        .then((ysdk) => {
+                            console.log("[Yandex SDK]: Инициализация успешна");
+                            ysdkInstance = ysdk;
+
+                            checkAndCallSDKReady();
+
+                            try {
+                                if (ysdk.environment && ysdk.environment.i18n) {
+                                    const lang = ysdk.environment.i18n.lang;
+                                    window.userLanguage = lang;
+                                    applyLanguage("ru");
+                                } else {
+                                    applyLanguage("ru");
+                                }
+                            } catch (e) {
+                                applyLanguage("ru");
+                            }
+
+                            // Подписка на 'game_api_resume'
+                            if (ysdk && typeof ysdk.on === "function") {
+                                try {
+                                    ysdk.off("game_api_resume", resumeCallback);
+                                } catch (e) {}
+                                ysdk.on("game_api_resume", resumeCallback);
+                            }
+
+                            if (ysdk.features && ysdk.features.GameplayAPI) {
+                                ysdk.features.GameplayAPI.onPause(() => {
+                                    console.log(
+                                        "[SDK]: Платформа приостановила игру",
+                                    );
+                                    isPlatformPaused = true;
+                                    pauseGame();
+                                });
+
+                                ysdk.features.GameplayAPI.onResume(() => {
+                                    console.log(
+                                        "[SDK]: Платформа возобновила игру",
+                                    );
+                                    resumeGame();
+                                });
+                            }
+
+                            if (ysdk.screen && ysdk.screen.fullscreen) {
+                                ysdk.screen.fullscreen
+                                    .request()
+                                    .catch(() => {});
+                            }
+                        })
+                        .catch((err) => {
+                            console.warn(
+                                "[Yandex SDK]: Ошибка инициализации",
+                                err,
+                            );
+                        });
+                } else {
+                    console.log("[Yandex SDK]: Запуск локально");
+                }
+            }
+
+            function showYandexInterstitial(onCloseCallback) {
+                if (ysdkInstance) {
+                    const wasMuted = sfx.muted;
+                    const prevGameState = gameState;
+
+                    sfx.muted = true;
+                    pauseGame(); // Gameplay API stop вызовется внутри pauseGame()
+
+                    ysdkInstance.adv.showFullscreenAdv({
+                        callbacks: {
+                            onOpen: () => {
+                                isPlatformPaused = true;
+                            },
+                            onClose: () => {
+                                isPlatformPaused = false;
+                                sfx.muted = wasMuted;
+                                if (gameState === STATES.PAUSED) {
+                                    gameState =
+                                        prevGameState === STATES.PAUSED
+                                            ? STATES.PAUSED
+                                            : previousState;
+                                    lastTime = performance.now();
+                                    if (gameState !== STATES.PAUSED) {
+                                        ensureMusicState();
+                                        if (
+                                            sfx &&
+                                            sfx.ctx &&
+                                            sfx.ctx.state === "suspended"
+                                        ) {
+                                            sfx.ctx.resume();
+                                        }
+                                        triggerYandexGameplayStart(); // Возобновление игры
+                                    }
+                                }
+                                if (onCloseCallback) onCloseCallback();
+                            },
+                            onError: () => {
+                                isPlatformPaused = false;
+                                sfx.muted = wasMuted;
+                                if (gameState === STATES.PAUSED) {
+                                    gameState =
+                                        prevGameState === STATES.PAUSED
+                                            ? STATES.PAUSED
+                                            : previousState;
+                                    lastTime = performance.now();
+                                    if (gameState !== STATES.PAUSED) {
+                                        ensureMusicState();
+                                        if (
+                                            sfx &&
+                                            sfx.ctx &&
+                                            sfx.ctx.state === "suspended"
+                                        ) {
+                                            sfx.ctx.resume();
+                                        }
+                                        triggerYandexGameplayStart(); // Возобновление игры
+                                    }
+                                }
+                                if (onCloseCallback) onCloseCallback();
+                            },
+                        },
+                    });
+                } else {
+                    if (onCloseCallback) onCloseCallback();
+                }
+            }
+
+            function showYandexRewarded(onRewardedCallback, onErrorCallback) {
+                if (ysdkInstance) {
+                    const wasMuted = sfx.muted;
+                    sfx.muted = true;
+                    const prevGameState = gameState;
+
+                    pauseGame(); // Gameplay API stop вызовется внутри pauseGame()
+
+                    ysdkInstance.adv.showRewardedVideo({
+                        callbacks: {
+                            onOpen: () => {
+                                isPlatformPaused = true;
+                            },
+                            onRewarded: () => {
+                                if (onRewardedCallback) onRewardedCallback();
+                            },
+                            onClose: () => {
+                                isPlatformPaused = false;
+                                sfx.muted = wasMuted;
+                                if (gameState === STATES.PAUSED) {
+                                    gameState =
+                                        prevGameState === STATES.PAUSED
+                                            ? STATES.PAUSED
+                                            : previousState;
+                                    lastTime = performance.now();
+                                    if (gameState !== STATES.PAUSED) {
+                                        ensureMusicState();
+                                        if (
+                                            sfx &&
+                                            sfx.ctx &&
+                                            sfx.ctx.state === "suspended"
+                                        ) {
+                                            sfx.ctx.resume();
+                                        }
+                                        triggerYandexGameplayStart(); // Возобновление игры
+                                    }
+                                }
+                            },
+                            onError: () => {
+                                isPlatformPaused = false;
+                                sfx.muted = wasMuted;
+                                if (gameState === STATES.PAUSED) {
+                                    gameState =
+                                        prevGameState === STATES.PAUSED
+                                            ? STATES.PAUSED
+                                            : previousState;
+                                    lastTime = performance.now();
+                                    if (gameState !== STATES.PAUSED) {
+                                        ensureMusicState();
+                                        if (
+                                            sfx &&
+                                            sfx.ctx &&
+                                            sfx.ctx.state === "suspended"
+                                        ) {
+                                            sfx.ctx.resume();
+                                        }
+                                        triggerYandexGameplayStart(); // Возобновление игры
+                                    }
+                                }
+                                if (onErrorCallback) onErrorCallback();
+                            },
+                        },
+                    });
+                } else {
+                    if (onRewardedCallback) onRewardedCallback();
+                }
+            }
+
+            function pauseGame() {
+                if (
+                    [
+                        STATES.PLAYING,
+                        STATES.PORTAL_OPEN,
+                        STATES.BOSS_SPAWN,
+                        STATES.BOSS_FIGHT,
+                    ].includes(gameState)
+                ) {
+                    previousState = gameState;
+                    gameState = STATES.PAUSED;
+                    pauseMusic();
+                    triggerYandexGameplayStop(); // Остановка игрового процесса
+                }
+                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
+                    sfx.ctx.suspend();
+                }
+                updatePauseButtonVisibility();
+            }
+
+            function resumeGame() {
+                isPlatformPaused = false;
+                if (gameState === STATES.PAUSED) {
+                    gameState = previousState;
+                    lastTime = performance.now();
+                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                        sfx.ctx.resume();
+                    }
+                    ensureMusicState();
+                    updatePauseButtonVisibility();
+                    triggerYandexGameplayStart(); // Возобновление игрового процесса
+                }
+            }
 
             class QT_Rectangle {
                 constructor(x, y, w, h) {
@@ -1300,18 +1218,14 @@
                     this.divided = true;
                 }
                 insert(obj) {
-                    if (!this.boundary.contains(obj)) {
-                        return false;
-                    }
+                    if (!this.boundary.contains(obj)) return false;
 
                     if (this.objects.length < this.capacity) {
                         this.objects.push(obj);
                         return true;
                     }
 
-                    if (!this.divided) {
-                        this.subdivide();
-                    }
+                    if (!this.divided) this.subdivide();
 
                     if (this.northeast.insert(obj)) return true;
                     if (this.northwest.insert(obj)) return true;
@@ -1322,15 +1236,11 @@
                 }
                 query(range, found) {
                     if (!found) found = [];
-                    if (!this.boundary.intersects(range)) {
-                        return found;
-                    }
+                    if (!this.boundary.intersects(range)) return found;
 
                     for (let i = 0; i < this.objects.length; i++) {
                         let obj = this.objects[i];
-                        if (range.contains(obj)) {
-                            found.push(obj);
-                        }
+                        if (this.boundary.contains(obj)) found.push(obj);
                     }
 
                     if (this.divided) {
@@ -1339,7 +1249,6 @@
                         this.southeast.query(range, found);
                         this.southwest.query(range, found);
                     }
-
                     return found;
                 }
             }
@@ -1435,8 +1344,6 @@
                             document.getElementById("preloader").style.display =
                                 "none";
                             showMenu();
-
-                            // Сигнализируем синхронизатору готовности, что прелоадер завершил загрузку
                             isGameReady = true;
                             checkAndCallSDKReady();
                         }, 500);
@@ -1514,7 +1421,7 @@
                 {
                     id: "Mine",
                     name: "Mine",
-                    desc: "Защитные мины, взрывающиеся при контакте.",
+                    desc: "Защитные мины при контакте.",
                     cond: "Достигнуть 10 уровня",
                 },
                 {
@@ -1532,8 +1439,8 @@
                 {
                     id: "Crystal",
                     name: "Crystal",
-                    desc: "Кристалл, дробящийся на фрагменты.",
-                    cond: "50000+ очков за забег",
+                    desc: "Кристалл, дробящийся на осколки.",
+                    cond: "50000+ очков",
                 },
             ];
 
@@ -1625,6 +1532,7 @@
                 .addEventListener("click", (e) => {
                     e.stopPropagation();
                     ensureAudioContext();
+                    sfx.loadMusic();
                     showYandexInterstitial(() => {
                         document.getElementById("menu-screen").style.display =
                             "none";
@@ -1633,9 +1541,7 @@
                         gameState = STATES.PLAYING;
                         lastTime = performance.now();
                         startMusic();
-
-                        // 🚀 ГЕЙМПЛЕЙ НАЧАЛСЯ: Уведомляем Yandex Games Gameplay API
-                        triggerYandexGameplayStart();
+                        triggerYandexGameplayStart(); // Игровой процесс начался
                     });
                 });
 
@@ -1663,19 +1569,8 @@
                 });
 
             function goToMenu() {
-                // 🛑 ГЕЙМПЛЕЙ ОСТАНОВЛЕН: Уведомляем Yandex Games Gameplay API
-                triggerYandexGameplayStop();
-
-                // Останавливаем музыку с fade-out
-                if (bgMusic && isMusicPlaying) {
-                    fadeOutMusic(() => {
-                        bgMusic.pause();
-                        bgMusic.currentTime = 0;
-                        isMusicPlaying = false;
-                    });
-                } else {
-                    stopMusic();
-                }
+                triggerYandexGameplayStop(); // Игровой процесс полностью остановлен (вызов меню)
+                stopMusic();
 
                 document.getElementById("menu-screen").style.display = "flex";
                 document.getElementById("pause-menu-btn").style.display =
@@ -2178,13 +2073,13 @@
                                         let c = i % 6;
                                         let warning = false;
 
-                                        if (patternType === 0) {
+                                        if (patternType === 0)
                                             warning = (r + c) % 2 === 0;
-                                        } else if (patternType === 1) {
+                                        else if (patternType === 1)
                                             warning = r % 2 === 0;
-                                        } else if (patternType === 2) {
+                                        else if (patternType === 2)
                                             warning = Math.random() < 0.5;
-                                        } else {
+                                        else {
                                             let pCol = Math.floor(
                                                 (player.x -
                                                     (bossArena.x - 300)) /
@@ -2256,9 +2151,7 @@
                                         sfx.playHit();
                                         if (player.hp <= 0) handlePlayerDeath();
                                     }
-                                    if (cell.timer <= 0) {
-                                        cell.state = 0;
-                                    }
+                                    if (cell.timer <= 0) cell.state = 0;
                                 }
                             }
                         } else if (currentCycleTime < 800) {
@@ -2269,9 +2162,8 @@
                                     (this.laserAngle || 0) + 0.015;
                                 this.gridCells = null;
                             } else {
-                                if (this.antivirusPhase !== 3) {
+                                if (this.antivirusPhase !== 3)
                                     this.antivirusPhase = 3;
-                                }
                                 this.laserAngle += 0.015;
 
                                 let angles = [
@@ -3705,19 +3597,12 @@
             }
 
             function checkScoreProgression() {
-                if (score >= 40000 && !unlockedWeapons.includes("Crystal")) {
+                if (score >= 40000 && !unlockedWeapons.includes("Crystal"))
                     unlockWeapon("Crystal");
-                } else if (
-                    score >= 65000 &&
-                    !unlockedWeapons.includes("Rain")
-                ) {
+                else if (score >= 65000 && !unlockedWeapons.includes("Rain"))
                     unlockWeapon("Rain");
-                } else if (
-                    score >= 25000 &&
-                    !unlockedWeapons.includes("Bounce")
-                ) {
+                else if (score >= 25000 && !unlockedWeapons.includes("Bounce"))
                     unlockWeapon("Bounce");
-                }
             }
 
             function unlockWeapon(id) {
@@ -3795,25 +3680,20 @@
             function damageEnemy(enemy, damageAmount) {
                 if (!enemy.active) return false;
 
-                if (enemy.variant === "panic_decoy") {
-                    if (Math.random() < 0.15) {
-                        let a = Math.atan2(
-                            player.y - enemy.y,
-                            player.x - enemy.x,
+                if (enemy.variant === "panic_decoy" && Math.random() < 0.15) {
+                    let a = Math.atan2(player.y - enemy.y, player.x - enemy.x);
+                    enemyBulletPool
+                        .get()
+                        ?.spawn(
+                            enemy.x,
+                            enemy.y,
+                            Math.cos(a) * 3.5,
+                            Math.sin(a) * 3.5,
+                            4,
+                            false,
+                            90,
+                            "normal",
                         );
-                        enemyBulletPool
-                            .get()
-                            ?.spawn(
-                                enemy.x,
-                                enemy.y,
-                                Math.cos(a) * 3.5,
-                                Math.sin(a) * 3.5,
-                                4,
-                                false,
-                                90,
-                                "normal",
-                            );
-                    }
                 }
 
                 enemy.hp -= damageAmount;
@@ -3856,26 +3736,23 @@
                 sfx.playExplode();
                 checkScoreProgression();
 
-                if (gameState === STATES.PLAYING) {
-                    gameTimer += 0.6;
-                }
+                if (gameState === STATES.PLAYING) gameTimer += 0.6;
 
                 if (
                     enemy.variant === "boss_rat_king" ||
                     enemy.variant === "boss_antivirus" ||
                     enemy.variant === "boss_kernel_panic"
-                )
+                ) {
                     handleBossDeath();
-                else {
-                    if (!bossArena.active) {
+                } else {
+                    if (!bossArena.active)
                         xpPool.get()?.spawn(enemy.x, enemy.y);
-                    }
                     if (enemy.variant === "exploder") {
                         effectPool
                             .get()
                             ?.spawn(enemy.x, enemy.y, 55, 15, "enemy_exp");
-                        let dx = player.x - enemy.x;
-                        let dy = player.y - enemy.y;
+                        let dx = player.x - enemy.x,
+                            dy = player.y - enemy.y;
                         let minDist = 55 + player.radius;
                         if (dx * dx + dy * dy < minDist * minDist) {
                             player.hp -= 12;
@@ -4003,8 +3880,8 @@
                             for (let j = 0; j < candidates.length; j++) {
                                 let e = candidates[j];
                                 if (!e.active) continue;
-                                let dx = e.x - ox;
-                                let dy = e.y - oy;
+                                let dx = e.x - ox,
+                                    dy = e.y - oy;
                                 let minDist = e.radius + halfSize;
                                 if (dx * dx + dy * dy < minDist * minDist) {
                                     damageEnemy(e, 4);
@@ -4080,8 +3957,8 @@
                                 let e = candidates[j];
                                 if (!e.active) continue;
 
-                                let dx = e.x - player.x;
-                                let dy = e.y - player.y;
+                                let dx = e.x - player.x,
+                                    dy = e.y - player.y;
                                 let minDist = r + e.radius;
 
                                 if (dx * dx + dy * dy < minDist * minDist) {
@@ -4092,9 +3969,7 @@
                                     }
                                     if (progress === 69)
                                         auraDmg += 15 + WEAPONS.Aura.level * 5;
-                                    if (auraDmg > 0) {
-                                        damageEnemy(e, auraDmg);
-                                    }
+                                    if (auraDmg > 0) damageEnemy(e, auraDmg);
                                 }
                             }
                         }
@@ -4143,7 +4018,7 @@
                         ];
                         let dmg = 15 + WEAPONS.Cross.level * 5;
                         sfx.playShoot();
-                        dirs.forEach((d) =>
+                        dirs.forEach((d) => {
                             bulletPool
                                 .get()
                                 ?.spawn(
@@ -4159,8 +4034,8 @@
                                         : "cross",
                                     0,
                                     dmg,
-                                ),
-                        );
+                                );
+                        });
                     },
                     upgrade: (w) => {
                         w.baseCd -= 10;
@@ -4418,8 +4293,8 @@
                             for (let j = 0; j < candidates.length; j++) {
                                 let e = candidates[j];
                                 if (e.active && targets.indexOf(e) === -1) {
-                                    let dx = e.x - curr.x;
-                                    let dy = e.y - curr.y;
+                                    let dx = e.x - curr.x,
+                                        dy = e.y - curr.y;
                                     let dSqr = dx * dx + dy * dy;
                                     if (dSqr < bestDSqr) {
                                         bestDSqr = dSqr;
@@ -4881,7 +4756,8 @@
                     pendingUpgrades > 0 &&
                     gameState !== STATES.UPGRADE &&
                     gameState !== STATES.BOSS_SPAWN &&
-                    gameState !== STATES.PAUSED
+                    gameState !== STATES.PAUSED &&
+                    gameState !== STATES.REVIVING
                 ) {
                     triggerUpgradeScreen();
                 }
@@ -4891,32 +4767,14 @@
                 if (gameState === STATES.PAUSED && !reviveAnimationActive) {
                     document.getElementById("pause-menu-btn").style.display =
                         "block";
-                    if (bgMusic && isMusicPlaying && !bgMusic.paused) {
-                        fadeOutMusic(() => {
-                            bgMusic.pause();
-                            isMusicPlaying = false;
-                        });
-                    }
+                    isMusicPlaying = false;
+                    fadeOutMusic(() => {
+                        sfx.stopMusic();
+                    }, true);
                     return;
                 } else {
                     document.getElementById("pause-menu-btn").style.display =
                         "none";
-                    // Если музыка на паузе и игра не на паузе - возобновляем
-                    if (
-                        bgMusic &&
-                        bgMusic.paused &&
-                        isMusicPlaying &&
-                        !sfx.muted
-                    ) {
-                        bgMusic.volume = 0;
-                        currentVolume = 0;
-                        bgMusic
-                            .play()
-                            .then(() => {
-                                fadeInMusic();
-                            })
-                            .catch(() => {});
-                    }
                 }
 
                 if (
@@ -4924,27 +4782,54 @@
                     gameState !== STATES.BOSS_SPAWN &&
                     gameState !== STATES.PAUSED
                 ) {
-                    secondsTimer++;
-                    if (secondsTimer >= 60) {
-                        secondsTimer = 0;
-                        if (gameState === STATES.PLAYING) {
-                            gameTimer++;
-                            if (gameTimer >= WORLD_DURATION)
-                                triggerPortalPhase();
+                    const isGameplayActive = gameState !== STATES.REVIVING;
+
+                    if (isGameplayActive) {
+                        secondsTimer++;
+                        if (secondsTimer >= 60) {
+                            secondsTimer = 0;
+                            if (gameState === STATES.PLAYING) {
+                                gameTimer++;
+                                if (gameTimer >= WORLD_DURATION)
+                                    triggerPortalPhase();
+                            }
                         }
+
+                        player.update();
+                        enemyPool.updateAll();
+
+                        for (let i = spawnWarnings.length - 1; i >= 0; i--) {
+                            let sw = spawnWarnings[i];
+                            sw.timer--;
+                            if (sw.timer <= 0) {
+                                enemyPool.get()?.spawn(sw.x, sw.y, sw.variant);
+                                spawnWarnings.splice(i, 1);
+                            }
+                        }
+
+                        Object.keys(WEAPONS).forEach((k) => {
+                            let w = WEAPONS[k];
+                            if (w.level > 0) {
+                                if (w.fire) {
+                                    w.timer++;
+                                    if (w.timer >= w.cd) {
+                                        w.timer = 0;
+                                        w.fire();
+                                    }
+                                }
+                                if (w.update) w.update();
+                            }
+                        });
+
+                        if (!bossArena.active) spawnWave();
                     }
 
-                    player.update();
-                    enemyPool.updateAll();
-
-                    for (let i = spawnWarnings.length - 1; i >= 0; i--) {
-                        let sw = spawnWarnings[i];
-                        sw.timer--;
-                        if (sw.timer <= 0) {
-                            enemyPool.get()?.spawn(sw.x, sw.y, sw.variant);
-                            spawnWarnings.splice(i, 1);
-                        }
-                    }
+                    bulletPool.updateAll();
+                    enemyBulletPool.updateAll();
+                    xpPool.updateAll();
+                    effectPool.updateAll();
+                    floatingTextPool.updateAll();
+                    worldPortal.update();
 
                     let qtBoundary = new QT_Rectangle(
                         player.x,
@@ -4957,28 +4842,6 @@
                         enemyQuadTree.insert(enemyPool.objects[i]);
                     }
 
-                    Object.keys(WEAPONS).forEach((k) => {
-                        let w = WEAPONS[k];
-                        if (w.level > 0) {
-                            if (w.fire) {
-                                w.timer++;
-                                if (w.timer >= w.cd) {
-                                    w.timer = 0;
-                                    w.fire();
-                                }
-                            }
-                            if (w.update) w.update();
-                        }
-                    });
-
-                    bulletPool.updateAll();
-                    enemyBulletPool.updateAll();
-                    xpPool.updateAll();
-                    effectPool.updateAll();
-                    floatingTextPool.updateAll();
-                    worldPortal.update();
-                    if (!bossArena.active) spawnWave();
-
                     for (let i = activeLightnings.length - 1; i >= 0; i--) {
                         activeLightnings[i].life--;
                         if (activeLightnings[i].life <= 0)
@@ -4988,7 +4851,10 @@
 
                 if (gameState === STATES.BOSS_SPAWN) {
                     bossSpawnTimer--;
-                    if (bossSpawnTimer <= 0) gameState = STATES.BOSS_FIGHT;
+                    if (bossSpawnTimer <= 0) {
+                        gameState = STATES.BOSS_FIGHT;
+                        triggerYandexGameplayStart(); // Фактический старт интерактивного боя
+                    }
                 }
 
                 ensureMusicState();
@@ -5026,16 +4892,13 @@
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
 
                 if (reviveAnimationActive) {
-                    // Эффект пульсации экрана
                     const scale =
                         1 + Math.sin(reviveAnimationProgress * 0.2) * 0.03;
-
                     ctx.save();
                     ctx.translate(canvas.width / 2, canvas.height / 2);
                     ctx.scale(scale, scale);
                     ctx.translate(-canvas.width / 2, -canvas.height / 2);
 
-                    // Затемнение по краям (виньетка)
                     const vignette =
                         1 - Math.min(1, reviveAnimationProgress / 30) * 0.3;
                     const gradient = ctx.createRadialGradient(
@@ -5069,6 +4932,7 @@
                         STATES.BOSS_FIGHT,
                         STATES.UPGRADE,
                         STATES.PAUSED,
+                        STATES.REVIVING,
                     ].indexOf(gameState) !== -1
                 ) {
                     camera.x +=
@@ -5195,12 +5059,9 @@
                             STATES.BOSS_FIGHT,
                         ].includes(gameState)
                     ) {
-                        previousState = gameState;
-                        gameState = STATES.PAUSED;
-                        pauseMusic();
+                        pauseGame(); // Пауза игрового процесса
                     } else if (gameState === STATES.PAUSED) {
-                        gameState = previousState;
-                        resumeMusic();
+                        resumeGame(); // Снятие с паузы
                     }
                 }
             });
@@ -5208,54 +5069,26 @@
             let isTabHidden = false;
 
             window.addEventListener("blur", () => {
-                // ТОЛЬКО приостанавливаем аудио, НЕ ставим игру на паузу при потере фокуса окна (чтобы не дублировать API Яндекса)
-                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                    sfx.ctx.suspend();
-                }
-                if (bgMusic && isMusicPlaying) {
-                    bgMusic.pause();
-                }
+                isTabHidden = true;
+                pauseGame(); // Полная пауза при потере фокуса
             });
 
             window.addEventListener("focus", () => {
-                if (!isTabHidden) {
-                    // Если платформой или рекламой наложена пауза - блокируем автозапуск звуков!
-                    if (isPlatformPaused) return;
-
-                    // ТОЛЬКО возобновляем аудио
-                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                        sfx.ctx.resume();
-                    }
-                    if (bgMusic && isMusicPlaying && bgMusic.paused) {
-                        bgMusic.play().catch(() => {});
-                        bgMusic.volume = TARGET_VOLUME;
-                        currentVolume = TARGET_VOLUME;
-                    }
+                isTabHidden = false;
+                // При снятии неактивности НЕ снимаем с паузы автоматически
+                if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                    sfx.ctx.resume();
                 }
             });
 
             document.addEventListener("pause", () => {
-                if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                    sfx.ctx.suspend();
-                }
-                if (bgMusic && isMusicPlaying) {
-                    bgMusic.pause();
-                }
+                pauseGame(); // Полная пауза при событии приостановки платформы
             });
 
             document.addEventListener("resume", () => {
-                if (!isTabHidden) {
-                    // Если платформой или рекламой наложена пауза - блокируем автозапуск звуков!
-                    if (isPlatformPaused) return;
-
-                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                        sfx.ctx.resume();
-                    }
-                    if (bgMusic && isMusicPlaying && bgMusic.paused) {
-                        bgMusic.play().catch(() => {});
-                        bgMusic.volume = TARGET_VOLUME;
-                        currentVolume = TARGET_VOLUME;
-                    }
+                // Не снимаем с паузы автоматически
+                if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                    sfx.ctx.resume();
                 }
             });
             window.addEventListener("keyup", (e) => (keys[e.code] = false));
@@ -5272,67 +5105,26 @@
             document.addEventListener("visibilitychange", () => {
                 if (document.hidden) {
                     isTabHidden = true;
-                    // СТАВИМ ИГРУ НА ПАУЗУ только если вкладка скрыта
-                    if (
-                        [
-                            STATES.PLAYING,
-                            STATES.PORTAL_OPEN,
-                            STATES.BOSS_SPAWN,
-                            STATES.BOSS_FIGHT,
-                        ].includes(gameState)
-                    ) {
-                        previousState = gameState;
-                        gameState = STATES.PAUSED;
-                        pauseMusic();
-                        if (sfx && sfx.ctx && sfx.ctx.state === "running") {
-                            sfx.ctx.suspend();
-                        }
-                        updatePauseButtonVisibility();
-                    }
+                    pauseGame(); // Полная и моментальная пауза при скрытии вкладки
                 } else {
                     isTabHidden = false;
-
-                    // КРИТИЧЕСКИ: Если игра на системной паузе от платформы или рекламы -
-                    // мы НЕ должны возобновлять геймплей автоматически при фокусировке вкладки!
-                    if (isPlatformPaused) {
-                        console.log(
-                            "[SDK]: Пропускаем авто-снятие паузы, так как активна платформенная пауза.",
-                        );
-                        return;
-                    }
-
-                    // ВОЗОБНОВЛЯЕМ ИГРУ только если вкладка показана
-                    if (
-                        gameState === STATES.PAUSED &&
-                        previousState !== STATES.PAUSED
-                    ) {
-                        if (!sfx.muted) {
-                            resumeMusic();
-                        }
-                        gameState = previousState;
-                        lastTime = performance.now();
-                        if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
-                            sfx.ctx.resume();
-                        }
-                        updatePauseButtonVisibility();
+                    // Оставляем на паузе для повторного ручного запуска игроком
+                    if (sfx && sfx.ctx && sfx.ctx.state === "suspended") {
+                        sfx.ctx.resume();
                     }
                 }
             });
 
-            window.addEventListener("touchcancel", () => {
-                resetControls();
-            });
-
-            window.addEventListener("touchend", () => {
-                resetControls();
-            });
+            window.addEventListener("touchcancel", () => resetControls());
+            window.addEventListener("touchend", () => resetControls());
 
             function handlePlayerDeath() {
-                if (gameState === STATES.GAMEOVER) return;
-
-                // 🛑 ГЕЙМПЛЕЙ ОСТАНОВЛЕН: Уведомляем Yandex Games Gameplay API
-                triggerYandexGameplayStop();
-
+                if (
+                    gameState === STATES.GAMEOVER ||
+                    gameState === STATES.REVIVING
+                )
+                    return;
+                triggerYandexGameplayStop(); // Игровой процесс завершен (проигрыш)
                 pauseMusic();
                 gameState = STATES.GAMEOVER;
 
@@ -5363,29 +5155,9 @@
                     showYandexRewarded(
                         () => {
                             adReviveUsedInCurrentRun = true;
-
-                            player.hp = 100;
-
-                            effectPool
-                                .get()
-                                ?.spawn(
-                                    player.x,
-                                    player.y,
-                                    350,
-                                    45,
-                                    "pulse_wave",
-                                );
-                            dealAreaDamage(player.x, player.y, 350, 200);
-
                             document.getElementById(
                                 "gameover-screen",
                             ).style.display = "none";
-                            gameState = STATES.PLAYING;
-                            lastTime = performance.now();
-                            resumeMusic();
-
-                            // 🚀 ГЕЙМПЛЕЙ ВОЗОБНОВЛЕН: Снова отправляем уведомление о старте геймплея
-                            triggerYandexGameplayStart();
                             startReviveExplosionAnimation();
                         },
                         () => {
@@ -5411,9 +5183,7 @@
                         gameState = STATES.PLAYING;
                         lastTime = performance.now();
                         startMusic();
-
-                        // 🚀 ГЕЙМПЛЕЙ НАЧАЛСЯ: Уведомляем Gameplay API
-                        triggerYandexGameplayStart();
+                        triggerYandexGameplayStart(); // Игровой процесс перезапущен
                     });
                 });
 
@@ -5493,7 +5263,6 @@
                 activeBossRef = null;
                 bossArena.active = false;
                 adReviveUsedInCurrentRun = false;
-
                 spawnWarnings.length = 0;
 
                 Object.keys(WEAPONS).forEach((k) => {
@@ -5533,7 +5302,6 @@
                 floatingTextPool.clear();
                 worldPortal.active = false;
                 activeLightnings = [];
-
                 document.getElementById("pause-menu-btn").style.display =
                     "none";
             }
@@ -5554,11 +5322,12 @@
                         ry = player.y + Math.sin(angle) * dist;
                     let typeRand = Math.random(),
                         variant = "normal";
-                    if (currentWorld >= 2 && typeRand > 0.82)
+                    if (currentWorld >= 2 && typeRand > 0.82) {
                         variant =
                             currentWorld >= 3 && typeRand > 0.92
                                 ? "shooter"
                                 : "exploder";
+                    }
                     enemyPool.get()?.spawn(rx, ry, variant);
                 }
             }
@@ -5580,6 +5349,7 @@
             }
 
             function prepareBossSpawn() {
+                triggerYandexGameplayStop(); // Остановка фазы текущего уровня перед босс-ивент интро
                 gameState = STATES.BOSS_SPAWN;
                 bossSpawnTimer = 90;
                 bossArena.x = player.x;
@@ -5593,19 +5363,18 @@
                 enemyBulletPool.clear();
                 spawnWarnings.length = 0;
 
-                if (currentWorld === 1) {
+                if (currentWorld === 1)
                     enemyPool
                         .get()
                         ?.spawn(bossArena.x, bossArena.y, "boss_rat_king");
-                } else if (currentWorld === 2) {
+                else if (currentWorld === 2)
                     enemyPool
                         .get()
                         ?.spawn(bossArena.x, bossArena.y, "boss_antivirus");
-                } else {
+                else
                     enemyPool
                         .get()
                         ?.spawn(bossArena.x, bossArena.y, "boss_kernel_panic");
-                }
             }
 
             let bossDeathDelay = false;
@@ -5627,8 +5396,8 @@
                         "#00ff00",
                     );
 
+                triggerYandexGameplayStop(); // Прохождение босса (уровень завершен)
                 bossDeathDelay = true;
-
                 setTimeout(() => {
                     bossDeathDelay = false;
                     worldPortal.spawn(bossArena.x, bossArena.y);
@@ -5638,14 +5407,14 @@
                     unlockWeapon("Pulse");
                     toasts.push({
                         title: "ВИНЛОК ИЗГНАН",
-                        desc: "Разблокирован Импульс [Pulse] и доступ во 2-й сектор!",
+                        desc: "Разблокирован Импульс [Pulse] и доступ во 2 сектор!",
                         timer: 240,
                     });
                 } else if (currentWorld === 2) {
                     unlockWeapon("Beam");
                     toasts.push({
                         title: "АНТИВИРУС ДЕАКТИВИРОВАН",
-                        desc: "Разблокирован Лазер [Beam] и доступ в 3-й сектор!",
+                        desc: "Разблокирован Лазер [Beam] и доступ в 3 сектор!",
                         timer: 240,
                     });
                 } else {
@@ -5659,6 +5428,7 @@
             }
 
             function goToNextWorld() {
+                triggerYandexGameplayStop(); // Остановка игрового процесса завершенного уровня
                 currentWorld++;
                 difficultyMultiplier *= 1.45;
                 gameTimer = 0;
@@ -5673,12 +5443,12 @@
                 enemyBulletPool.clear();
                 effectPool.clear();
                 activeLightnings = [];
+                triggerYandexGameplayStart(); // Новый запуск игрового процесса
             }
 
             function initMobilePauseButton() {
                 const pauseBtn = document.getElementById("pause-button");
                 if (!pauseBtn) return;
-
                 const isMobile = window.innerWidth < 1024;
                 if (!isMobile) {
                     pauseBtn.style.display = "none";
@@ -5692,12 +5462,8 @@
             function startReviveExplosionAnimation() {
                 reviveAnimationActive = true;
                 reviveAnimationProgress = 0;
+                gameState = STATES.REVIVING;
 
-                // Сохраняем текущее состояние игры
-                const prevState = gameState;
-                gameState = STATES.REVIVING; // ← Используем специальное состояние
-
-                // Создаём множество взрывов по всей арене
                 const explosionCount = 12;
                 for (let i = 0; i < explosionCount; i++) {
                     setTimeout(() => {
@@ -5731,7 +5497,6 @@
                 setTimeout(() => {
                     if (!reviveAnimationActive) return;
 
-                    // Уничтожаем всех врагов с эффектами
                     for (let i = 0; i < enemyPool.activeCount; i++) {
                         const enemy = enemyPool.objects[i];
                         if (enemy.active) {
@@ -5746,7 +5511,6 @@
                     }
 
                     enemyBulletPool.clear();
-
                     reviveAnimationActive = false;
                     player.hp = 100;
 
@@ -5763,16 +5527,15 @@
                             "ЯДРО ВОССТАНОВЛЕНО!",
                             "#00ffff",
                         );
-
                     document.getElementById("gameover-screen").style.display =
                         "none";
                     gameState = STATES.PLAYING;
                     lastTime = performance.now();
                     resumeMusic();
-
-                    triggerYandexGameplayStart();
+                    triggerYandexGameplayStart(); // Возобновление игры после показа возрождающей рекламы
                 }, 1500);
             }
+
             function updatePauseButtonVisibility() {
                 const pauseBtn = document.getElementById("pause-button");
                 const isVisible =
@@ -5782,7 +5545,6 @@
                         gameState === STATES.BOSS_FIGHT ||
                         gameState === STATES.PAUSED) &&
                     window.innerWidth < 1024;
-
                 pauseBtn.style.display = isVisible ? "flex" : "none";
             }
 
@@ -5796,13 +5558,9 @@
                         gameState === STATES.BOSS_SPAWN ||
                         gameState === STATES.BOSS_FIGHT
                     ) {
-                        previousState = gameState;
-                        gameState = STATES.PAUSED;
-                        pauseMusic();
+                        pauseGame(); // Пауза игрового процесса
                     } else if (gameState === STATES.PAUSED) {
-                        gameState = previousState;
-                        resumeMusic();
-                        lastTime = performance.now();
+                        resumeGame(); // Снятие с паузы
                     }
                 });
             }
@@ -5810,7 +5568,6 @@
             initMobilePauseButton();
             window.addEventListener("resize", initMobilePauseButton);
 
-            // Инициализация при старте системы
             initYandexSDK();
             startPreloader();
 
